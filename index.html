@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brooklyn Bagel Budapest &mdash; Staff Order</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-stone-100 text-stone-800 min-h-screen">
+<div class="mx-auto max-w-xl px-4 py-6">
+  <div class="text-center mb-5">
+    <h1 class="text-2xl font-bold text-stone-900">Brooklyn Bagel Budapest</h1>
+    <p class="text-sm text-stone-500">Staff lunch order &mdash; pick your bagel, add your name, submit.</p>
+  </div>
+
+  <div class="bg-white rounded-2xl shadow-sm border border-stone-200 p-5 space-y-5">
+    <div>
+      <label class="block text-sm font-semibold mb-1">Your name</label>
+      <input id="name" type="text" placeholder="e.g. Sara" class="w-full rounded-lg border border-stone-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+    </div>
+    <div>
+      <div class="text-sm font-semibold mb-2">Bagel <span class="text-stone-400 font-normal">(choose one)</span></div>
+      <div id="bagels" class="grid grid-cols-2 gap-2"></div>
+    </div>
+    <div>
+      <div class="text-sm font-semibold mb-2">Spread <span class="text-stone-400 font-normal">(choose one)</span></div>
+      <div id="spreads" class="grid grid-cols-2 gap-2"></div>
+    </div>
+    <div>
+      <div class="text-sm font-semibold mb-2">Extras <span class="text-stone-400 font-normal">(optional, up to 6)</span></div>
+      <div id="extras" class="grid grid-cols-2 gap-2"></div>
+    </div>
+    <div>
+      <label class="block text-sm font-semibold mb-1">Notes <span class="text-stone-400 font-normal">(optional)</span></label>
+      <input id="notes" type="text" placeholder="e.g. toasted, no onion" class="w-full rounded-lg border border-stone-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+    </div>
+    <button id="addBtn" class="w-full rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2.5 transition">Add my order</button>
+    <p id="msg" class="text-sm text-center"></p>
+  </div>
+
+  <div class="mt-6">
+    <h2 class="text-lg font-bold text-stone-900 mb-2">Orders <span id="count" class="text-stone-400 text-base font-normal"></span></h2>
+    <div id="orders" class="space-y-2"></div>
+  </div>
+
+  <div id="summaryWrap" class="mt-6 hidden">
+    <div class="bg-white rounded-2xl shadow-sm border border-stone-200 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-bold text-stone-900">Totals for Wolt</h2>
+        <button id="copyBtn" class="rounded-lg bg-stone-800 hover:bg-stone-900 text-white text-sm font-medium px-3 py-1.5">Copy full summary</button>
+      </div>
+      <div id="summary" class="text-sm space-y-3"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var BAGELS = ["Plain","Poppy seed","Sesame","Sunflower seed","Multi-seed"];
+var SPREADS = ["No spread","Cream cheese","Egg cream","Tuna cream","Avocado cream","Butter","Eggplant cream"];
+var EXTRAS = ["Salmon","Avocado","Boiled egg","Grated cheese","Mozzarella"];
+var BASE = "https://qumdmlwqevcytyiibhmd.supabase.co/functions/v1/bagel-order";
+
+function esc(s){ var d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
+
+function radio(group, val){
+  return '<label class="flex items-center gap-2 rounded-lg border border-stone-200 px-3 py-2 cursor-pointer hover:bg-stone-50"><input type="radio" name="'+group+'" value="'+esc(val)+'" class="accent-amber-500"><span class="text-sm">'+esc(val)+'</span></label>';
+}
+function check(val){
+  return '<label class="flex items-center gap-2 rounded-lg border border-stone-200 px-3 py-2 cursor-pointer hover:bg-stone-50"><input type="checkbox" name="extra" value="'+esc(val)+'" class="accent-amber-500"><span class="text-sm">'+esc(val)+'</span></label>';
+}
+document.getElementById("bagels").innerHTML = BAGELS.map(function(b){return radio("bagel",b);}).join("");
+document.getElementById("spreads").innerHTML = SPREADS.map(function(s){return radio("spread",s);}).join("");
+document.getElementById("extras").innerHTML = EXTRAS.map(function(e){return check(e);}).join("");
+
+function picked(group){ var el=document.querySelector('input[name="'+group+'"]:checked'); return el?el.value:""; }
+function pickedExtras(){ return Array.prototype.slice.call(document.querySelectorAll('input[name="extra"]:checked')).map(function(e){return e.value;}); }
+
+function orderLine(o){
+  var parts = [o.bagel, o.spread];
+  if(o.extras && o.extras.length) parts.push("+ " + o.extras.join(", "));
+  var line = parts.join(" / ");
+  if(o.notes) line += "  (" + o.notes + ")";
+  return line;
+}
+
+function render(orders){
+  document.getElementById("count").textContent = orders.length ? "(" + orders.length + ")" : "";
+  var box = document.getElementById("orders");
+  if(!orders.length){ box.innerHTML = '<p class="text-sm text-stone-400">No orders yet.</p>'; }
+  else {
+    box.innerHTML = orders.map(function(o){
+      return '<div class="bg-white rounded-xl border border-stone-200 px-4 py-3 flex items-start justify-between gap-3">'
+        + '<div><div class="font-semibold text-stone-900">'+esc(o.name)+'</div><div class="text-sm text-stone-600">'+esc(orderLine(o))+'</div></div>'
+        + '<button data-id="'+o.id+'" class="rm text-stone-400 hover:text-red-500 text-sm">Remove</button></div>';
+    }).join("");
+    Array.prototype.slice.call(document.querySelectorAll(".rm")).forEach(function(b){
+      b.onclick = function(){ remove(b.getAttribute("data-id")); };
+    });
+  }
+  renderSummary(orders);
+}
+
+function tally(orders, key){
+  var counts = {};
+  orders.forEach(function(o){
+    var vals = key==="extras" ? (o.extras||[]) : [o[key]];
+    vals.forEach(function(v){ if(v){ counts[v]=(counts[v]||0)+1; } });
+  });
+  return Object.keys(counts).map(function(k){ return counts[k]+"x "+k; });
+}
+
+function renderSummary(orders){
+  var wrap = document.getElementById("summaryWrap");
+  if(!orders.length){ wrap.classList.add("hidden"); return; }
+  wrap.classList.remove("hidden");
+  function block(title, arr){
+    if(!arr.length) return "";
+    return '<div><div class="font-semibold text-stone-700">'+title+'</div><div class="text-stone-600">'+esc(arr.join(",  "))+'</div></div>';
+  }
+  document.getElementById("summary").innerHTML =
+    block("Bagels", tally(orders,"bagel")) +
+    block("Spreads", tally(orders,"spread")) +
+    block("Extras", tally(orders,"extras"));
+}
+
+function summaryText(orders){
+  var lines = ["Brooklyn Bagel Budapest - staff order ("+orders.length+")",""];
+  orders.forEach(function(o){ lines.push("- " + o.name + ": " + orderLine(o)); });
+  lines.push("","TOTALS");
+  lines.push("Bagels: " + tally(orders,"bagel").join(", "));
+  lines.push("Spreads: " + tally(orders,"spread").join(", "));
+  var ex = tally(orders,"extras"); if(ex.length) lines.push("Extras: " + ex.join(", "));
+  return lines.join("\n");
+}
+
+var current = [];
+function load(){
+  fetch(BASE + "?action=list").then(function(r){return r.json();}).then(function(d){ current = d.orders||[]; render(current); });
+}
+function remove(id){
+  fetch(BASE, {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({action:"remove", id:id})}).then(load);
+}
+
+function msg(text, ok){
+  var m = document.getElementById("msg");
+  m.textContent = text; m.className = "text-sm text-center " + (ok ? "text-green-600" : "text-red-600");
+  setTimeout(function(){ m.textContent=""; }, 2500);
+}
+
+document.getElementById("addBtn").onclick = function(){
+  var name = document.getElementById("name").value.trim();
+  var bagel = picked("bagel");
+  var spread = picked("spread");
+  var extras = pickedExtras();
+  var notes = document.getElementById("notes").value.trim();
+  if(!name){ msg("Please enter your name", false); return; }
+  if(!bagel){ msg("Pick a bagel", false); return; }
+  if(!spread){ msg("Pick a spread", false); return; }
+  var btn = this; btn.disabled = true; btn.textContent = "Adding...";
+  fetch(BASE, {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({action:"add", name:name, bagel:bagel, spread:spread, extras:extras, notes:notes})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false; btn.textContent="Add my order";
+      if(d.ok){
+        document.getElementById("name").value=""; document.getElementById("notes").value="";
+        Array.prototype.slice.call(document.querySelectorAll('input[type="radio"],input[type="checkbox"]')).forEach(function(i){i.checked=false;});
+        msg("Order added!", true); load();
+      } else { msg(d.error||"Something went wrong", false); }
+    }).catch(function(){ btn.disabled=false; btn.textContent="Add my order"; msg("Network error", false); });
+};
+
+document.getElementById("copyBtn").onclick = function(){
+  var t = summaryText(current);
+  navigator.clipboard.writeText(t).then(function(){ msg("Summary copied!", true); }, function(){ msg("Copy failed", false); });
+};
+
+load();
+setInterval(load, 8000);
+</script>
+</body>
+</html>
