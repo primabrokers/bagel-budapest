@@ -83,7 +83,7 @@ document.querySelectorAll(".removeBlock").forEach(function(b){
     blk.querySelector("#notes1").value="";
     document.getElementById("addSecond").classList.remove("hidden");
   };
-};
+});
 
 function pickedR(group){ var el=document.querySelector('input[name="'+group+'"]:checked'); return el?el.value:""; }
 function pickedC(group){ return Array.prototype.slice.call(document.querySelectorAll('input[name="'+group+'"]:checked')).map(function(e){return e.value;}); }
