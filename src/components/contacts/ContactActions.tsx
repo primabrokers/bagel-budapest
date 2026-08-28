@@ -1,22 +1,12 @@
 import { Mail, MessageCircle, Phone } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { toWhatsAppDigits } from '../../lib/share';
 
 interface ContactActionsProps {
   phone?: string | null;
   whatsapp?: string | null;
   email?: string | null;
   className?: string;
-}
-
-/** Best-effort, UK-biased normalisation to the digits-only, country-code-prefixed form wa.me
- *  needs (`44` + the number without its leading `0`). A shared, fuller `buildWhatsAppLink` is
- *  Stage 5's territory (`lib/share.ts`, for RSVP sending) and doesn't exist yet in this
- *  worktree — this stays local and simple until that lands. */
-function toWhatsAppDigits(raw: string): string {
-  const digits = raw.replace(/\D/g, '');
-  if (raw.trim().startsWith('+')) return digits;
-  if (digits.startsWith('0')) return `44${digits.slice(1)}`;
-  return digits;
 }
 
 const actionStyles =
@@ -31,7 +21,11 @@ const actionStyles =
  * when none of the three are present.
  */
 export function ContactActions({ phone, whatsapp, email, className }: ContactActionsProps) {
-  if (!phone && !whatsapp && !email) return null;
+  // `null` when the stored number has no usable digits at all — the shared helper can say that,
+  // where the local copy this replaced would happily build `wa.me/` and link to nothing.
+  const whatsappDigits = whatsapp ? toWhatsAppDigits(whatsapp) : null;
+
+  if (!phone && !whatsappDigits && !email) return null;
 
   return (
     <div className={cn('flex items-center gap-1', className)}>
@@ -40,9 +34,9 @@ export function ContactActions({ phone, whatsapp, email, className }: ContactAct
           <Phone size={16} aria-hidden="true" />
         </a>
       )}
-      {whatsapp && (
+      {whatsappDigits && (
         <a
-          href={`https://wa.me/${toWhatsAppDigits(whatsapp)}`}
+          href={`https://wa.me/${whatsappDigits}`}
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`Message ${whatsapp} on WhatsApp`}
