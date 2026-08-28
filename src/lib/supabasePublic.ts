@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabaseConfig';
 
 /**
  * A SEPARATE Supabase client for the public RSVP portal (`/rsvp/:token`) — the one screen in this
@@ -22,10 +23,7 @@ import { createClient } from '@supabase/supabase-js';
  * policies anywhere in this schema; every other Supabase call in the app goes through
  * `lib/supabase.ts`).
  */
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.invalid';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key';
-
-export const supabasePublic = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabasePublic = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,

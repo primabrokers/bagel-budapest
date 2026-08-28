@@ -29,12 +29,18 @@ the `CRM_NEW` repo's `docs/barmitzvah-planner-plan.md` for the full build plan.
 
 ## Deploying
 
-This app is a static SPA (`npm run build` → `dist/`) deployed to Vercel. Two environment
-variables, copied from `.env.example`, must be set on the Vercel project (values live in the
-Supabase project's API settings — never commit real values into this repo):
+This app is a static SPA (`npm run build` → `dist/`) deployed to Vercel. It needs **no
+environment variables**: `src/lib/supabaseConfig.ts` carries committed defaults for the Supabase
+URL and anon key, so importing the repo and deploying is enough.
 
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
+Those two values are safe to commit precisely because Vite inlines every `VITE_*` variable into
+the browser bundle — anyone loading the deployed app can read them in DevTools either way. The
+anon key is Supabase's publishable key and the security boundary is row-level security, which is
+enabled with membership-scoped policies on every `bm_*` table. A service role key would be a
+different matter entirely and must never go near this repo or any `VITE_*` variable.
+
+To point a build at a different Supabase project, set `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY` (see `.env.example`); they override the defaults.
 
 The app sits at the root of its own repository, so the Vercel project's **Root Directory** must
 be left **blank**. It previously lived in a `barmitzvah-planner/` subfolder of the `CRM_NEW`
