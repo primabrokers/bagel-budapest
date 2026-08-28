@@ -1,0 +1,123 @@
+/**
+ * Print stylesheet for `src/pages/print/*`. Imported directly by `PrintPageLayout`, never
+ * globally: nothing outside a print route should pay for these rules, and `@page`/`@media print`
+ * are otherwise inert on screen anyway.
+ *
+ * Three page shapes now live here, selected per route via `PrintPageLayout`'s `pageSize` prop:
+ *
+ *   - 'a5-card' (default) — ONE card on an A5 sheet. `InvitationPrintPage`'s original and, until
+ *     now, only shape — a standard invitation-card size, and the plan's own choice (see
+ *     docs/barmitzvah-planner-plan.md §3.7) over a full A4 sheet for something meant to be
+ *     printed, cut and posted rather than filed. The `@page` rule right below is its default;
+ *     because it IS the default, a route using it renders no override and its behaviour is
+ *     byte-for-byte what it was before this comment.
+ *   - 'a4-document' — a plain flowing A4 document (seating overview, caterer plan, catering
+ *     summary, run sheet): text/tables that can run to several pages. Individual pages mark their
+ *     own logical row groups (one table's guest list, one schedule block, one menu section) with
+ *     `.print-avoid-break` — see below — rather than the whole document being wrapped in one
+ *     break-inside:avoid, which would fight the browser the moment content outgrows a page.
+ *   - 'a4-card-grid' — a fixed grid of small cards on one A4 sheet (place cards, table cards):
+ *     see `.print-card-grid` below.
+ *
+ * `@page` is a global at-rule — it cannot be scoped by a class selector — so the two A4 modes
+ * above override it by having `PrintPageLayout` inject its own `<style>` tag at render time
+ * rather than adding a second selector-scoped rule here: later-in-DOM wins the cascade, so
+ * whichever route is actually mounted always wins over this default, and only one print route is
+ * ever mounted at a time.
+ */
+
+@page {
+  size: A5;
+  margin: 12mm;
+}
+
+/* Print-color-adjust, not a dark-mode override — this app has exactly one, light, palette (see
+   src/styles/tokens.css), so there is no theme to force. What DOES need forcing is the browser's
+   own "print economy" default, which silently drops background fills and lightens text to save
+   ink unless told not to — without this, the invitation's own canvas tint and any palette-hex
+   background this page sets inline would print as plain white. */
+.print-area {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  color-adjust: exact;
+}
+
+/*
+ * Grid-of-cards layout ('a4-card-grid') — styled for screen AND print, deliberately: the on-screen
+ * preview should already look like the sheet that's about to print, cut lines included, rather
+ * than only gaining them at print time. Two columns, as many rows as content needs; each cell
+ * carries a dashed border so every shared edge between cells reads as a cut/fold line.
+ *
+ * This is the one place in the app that intentionally renders an unprefixed 2-column grid at
+ * every width (see CLAUDE.md's phone-first grid convention) — deliberately, not an oversight: the
+ * grid's whole purpose is to mirror a fixed physical A4 sheet (roughly 8 place-card-sized cells
+ * per page, per the print/PDF plan), which does not reflow just because the on-screen preview is
+ * narrow. A phone viewing this route sees a small, scrollable preview of the actual print layout,
+ * not a phone-optimised page in its own right.
+ */
+.print-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.print-card-grid-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-height: 65mm;
+  padding: 8mm;
+  text-align: center;
+  border: 1px dashed var(--separator-strong);
+}
+
+@media print {
+  /* The screen-only Back link + Print button in PrintPageLayout — meaningless on a printed page,
+     and would otherwise burn a chunk of the sheet on chrome nobody asked to print. */
+  .print-toolbar {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    margin: 0 !important;
+  }
+
+  /* Reset: the on-screen layout wraps the print area in the app's own page padding/max-width for
+     a sane preview at 390px and on desktop — none of that belongs on the physical page, which is
+     already sized and margined by @page above (or by the per-route override PrintPageLayout
+     injects for the two A4 modes). */
+  .print-area {
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* A card (the invitation itself, or one printed row) never splits across a page boundary. */
+  .print-card {
+    break-inside: avoid;
+  }
+
+  /* 'a4-document' mode: the logical row group a page marks (a table's guest list, one schedule
+     block, one menu section, the allergy roster) stays whole on one page rather than splitting
+     awkwardly across two. */
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+
+  /* 'a4-card-grid' mode: a cell never splits, and a forced break after every 8th cell (2 cols x 4
+     rows) starts a fresh sheet for the 9th card rather than crowding it onto the last row of the
+     first — the standard technique for paginating a CSS grid predictably in print, since a grid
+     alone has no notion of "N cells per printed page". */
+  .print-card-grid-cell {
+    break-inside: avoid;
+  }
+  .print-card-grid > *:nth-child(8n) {
+    break-after: page;
+  }
+}

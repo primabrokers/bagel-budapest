@@ -1,0 +1,6 @@
+{
+  "note": "Lint ratchet baseline — see scripts/lint-baseline.cjs. Counts may go DOWN freely; going up fails the gate.",
+  "recordedAt": "2026-08-28",
+  "errors": 0,
+  "warnings": 0
+}

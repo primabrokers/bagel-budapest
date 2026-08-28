@@ -1,215 +1,35 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Brooklyn Bagel Budapest &mdash; Staff Order</title>
-<script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-stone-100 text-stone-800 min-h-screen">
-<div class="mx-auto max-w-xl px-4 py-6">
-  <div class="text-center mb-5">
-    <h1 class="text-2xl font-bold text-stone-900">Brooklyn Bagel Budapest</h1>
-    <p class="text-sm text-stone-500">Staff lunch order &mdash; add your name, then up to 2 bagels (each with its own spread &amp; toppings).</p>
-  </div>
-
-  <div class="bg-white rounded-2xl shadow-sm border border-stone-200 p-5 mb-3">
-    <label class="block text-sm font-semibold mb-1">Your name</label>
-    <input id="name" type="text" placeholder="e.g. Sara" class="w-full rounded-lg border border-stone-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400" />
-  </div>
-
-  <div id="blocks" class="space-y-3"></div>
-
-  <button id="addSecond" class="w-full mt-3 rounded-lg border-2 border-dashed border-amber-300 text-amber-700 font-medium py-2.5 hover:bg-amber-50">+ Add a second bagel</button>
-
-  <button id="addBtn" class="w-full mt-3 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2.5 transition">Add my order</button>
-  <p id="msg" class="text-sm text-center mt-2"></p>
-
-  <div class="mt-6">
-    <h2 class="text-lg font-bold text-stone-900 mb-2">Orders <span id="count" class="text-stone-400 text-base font-normal"></span></h2>
-    <div id="orders" class="space-y-2"></div>
-  </div>
-
-  <div id="summaryWrap" class="mt-6 hidden">
-    <div class="bg-white rounded-2xl shadow-sm border border-stone-200 p-5">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-bold text-stone-900">Totals for Wolt</h2>
-        <button id="copyBtn" class="rounded-lg bg-stone-800 hover:bg-stone-900 text-white text-sm font-medium px-3 py-1.5">Copy full summary</button>
-      </div>
-      <div id="summary" class="text-sm space-y-3"></div>
-    </div>
-  </div>
-</div>
-
-<script>
-var BAGELS = ["Plain","Poppy seed","Sesame","Sunflower seed","Multi-seed"];
-var SPREADS = ["No spread","Cream cheese","Egg cream","Tuna cream","Avocado cream","Butter","Eggplant cream"];
-var EXTRAS = ["Salmon","Avocado","Boiled egg","Grated cheese","Mozzarella"];
-var BASE = "https://qumdmlwqevcytyiibhmd.supabase.co/functions/v1/bagel-order";
-
-function esc(s){ var d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
-
-function optsHtml(type, group, list){
-  return list.map(function(v){
-    return '<label class="flex items-center gap-2 rounded-lg border border-stone-200 px-3 py-2 cursor-pointer hover:bg-stone-50">'
-      + '<input type="'+type+'" name="'+group+'" value="'+esc(v)+'" class="accent-amber-500">'
-      + '<span class="text-sm">'+esc(v)+'</span></label>';
-  }).join("");
-}
-
-function buildBlock(i){
-  var hidden = i>0 ? ' hidden' : '';
-  var removeBtn = i>0 ? '<button type="button" class="removeBlock text-sm text-red-500 hover:text-red-600">Remove</button>' : '';
-  return '<div id="block'+i+'" class="bagel-block bg-white rounded-2xl shadow-sm border border-stone-200 p-5 space-y-4'+hidden+'">'
-    + '<div class="flex items-center justify-between"><h3 class="font-bold text-stone-900">Bagel '+(i+1)+'</h3>'+removeBtn+'</div>'
-    + '<div><div class="text-sm font-semibold mb-2">Bagel <span class="text-stone-400 font-normal">(choose one)</span></div><div class="grid grid-cols-2 gap-2">'+optsHtml("radio","bagel"+i,BAGELS)+'</div></div>'
-    + '<div><div class="text-sm font-semibold mb-2">Spread <span class="text-stone-400 font-normal">(choose one)</span></div><div class="grid grid-cols-2 gap-2">'+optsHtml("radio","spread"+i,SPREADS)+'</div></div>'
-    + '<div><div class="text-sm font-semibold mb-2">Toppings <span class="text-stone-400 font-normal">(optional)</span></div><div class="grid grid-cols-2 gap-2">'+optsHtml("checkbox","extra"+i,EXTRAS)+'</div></div>'
-    + '<div><label class="block text-sm font-semibold mb-1">Notes <span class="text-stone-400 font-normal">(optional)</span></label><input id="notes'+i+'" type="text" placeholder="e.g. toasted" class="w-full rounded-lg border border-stone-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400"></div>'
-    + '</div>';
-}
-
-document.getElementById("blocks").innerHTML = buildBlock(0) + buildBlock(1);
-
-document.getElementById("addSecond").onclick = function(){
-  document.getElementById("block1").classList.remove("hidden");
-  this.classList.add("hidden");
-};
-document.querySelectorAll(".removeBlock").forEach(function(b){
-  b.onclick = function(){
-    var blk = document.getElementById("block1");
-    blk.classList.add("hidden");
-    blk.querySelectorAll('input[type="radio"],input[type="checkbox"]').forEach(function(i){i.checked=false;});
-    blk.querySelector("#notes1").value="";
-    document.getElementById("addSecond").classList.remove("hidden");
-  };
-});
-
-function pickedR(group){ var el=document.querySelector('input[name="'+group+'"]:checked'); return el?el.value:""; }
-function pickedC(group){ return Array.prototype.slice.call(document.querySelectorAll('input[name="'+group+'"]:checked')).map(function(e){return e.value;}); }
-
-function gatherBagel(i){
-  var bagel = pickedR("bagel"+i);
-  var spread = pickedR("spread"+i);
-  if(!bagel && !spread) return null; // empty block
-  if(!bagel || !spread) return "incomplete";
-  return { bagel: bagel, spread: spread, extras: pickedC("extra"+i), notes: (document.getElementById("notes"+i).value||"").trim() };
-}
-
-function bagelLine(b){
-  var line = b.bagel + " / " + b.spread;
-  if(b.extras && b.extras.length) line += "  +  " + b.extras.join(", ");
-  if(b.notes) line += "  (" + b.notes + ")";
-  return line;
-}
-
-function render(orders){
-  var totalBagels = orders.reduce(function(s,o){return s + (o.bagels?o.bagels.length:0);},0);
-  document.getElementById("count").textContent = orders.length ? "(" + orders.length + " people / " + totalBagels + " bagels)" : "";
-  var box = document.getElementById("orders");
-  if(!orders.length){ box.innerHTML = '<p class="text-sm text-stone-400">No orders yet.</p>'; }
-  else {
-    box.innerHTML = orders.map(function(o){
-      var items = (o.bagels||[]).map(function(b,idx){
-        return '<li class="text-sm text-stone-600"><span class="text-stone-400">'+(idx+1)+')</span> '+esc(bagelLine(b))+'</li>';
-      }).join("");
-      return '<div class="bg-white rounded-xl border border-stone-200 px-4 py-3">'
-        + '<div class="flex items-start justify-between gap-3"><div class="font-semibold text-stone-900">'+esc(o.name)+'</div>'
-        + '<button data-id="'+o.id+'" class="rm text-stone-400 hover:text-red-500 text-sm">Remove</button></div>'
-        + '<ul class="mt-1 space-y-0.5">'+items+'</ul></div>';
-    }).join("");
-    Array.prototype.slice.call(document.querySelectorAll(".rm")).forEach(function(b){
-      b.onclick = function(){ remove(b.getAttribute("data-id")); };
-    });
-  }
-  renderSummary(orders);
-}
-
-function allBagels(orders){ var a=[]; orders.forEach(function(o){ (o.bagels||[]).forEach(function(b){ a.push(b); }); }); return a; }
-function tally(items, key){
-  var counts = {};
-  items.forEach(function(b){
-    var vals = key==="extras" ? (b.extras||[]) : [b[key]];
-    vals.forEach(function(v){ if(v){ counts[v]=(counts[v]||0)+1; } });
-  });
-  return Object.keys(counts).map(function(k){ return counts[k]+"x "+k; });
-}
-
-function renderSummary(orders){
-  var wrap = document.getElementById("summaryWrap");
-  if(!orders.length){ wrap.classList.add("hidden"); return; }
-  wrap.classList.remove("hidden");
-  var items = allBagels(orders);
-  function block(title, arr){
-    if(!arr.length) return "";
-    return '<div><div class="font-semibold text-stone-700">'+title+'</div><div class="text-stone-600">'+esc(arr.join(",  "))+'</div></div>';
-  }
-  document.getElementById("summary").innerHTML =
-    block("Bagels", tally(items,"bagel")) +
-    block("Spreads", tally(items,"spread")) +
-    block("Toppings", tally(items,"extras"));
-}
-
-function summaryText(orders){
-  var items = allBagels(orders);
-  var lines = ["Brooklyn Bagel Budapest - staff order ("+orders.length+" people / "+items.length+" bagels)",""];
-  orders.forEach(function(o){
-    lines.push(o.name + ":");
-    (o.bagels||[]).forEach(function(b,idx){ lines.push("   "+(idx+1)+") "+bagelLine(b)); });
-  });
-  lines.push("","TOTALS");
-  lines.push("Bagels: " + tally(items,"bagel").join(", "));
-  lines.push("Spreads: " + tally(items,"spread").join(", "));
-  var ex = tally(items,"extras"); if(ex.length) lines.push("Toppings: " + ex.join(", "));
-  return lines.join("\n");
-}
-
-var current = [];
-function load(){
-  fetch(BASE + "?action=list").then(function(r){return r.json();}).then(function(d){ current = d.orders||[]; render(current); });
-}
-function remove(id){
-  fetch(BASE, {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({action:"remove", id:id})}).then(load);
-}
-
-function msg(text, ok){
-  var m = document.getElementById("msg");
-  m.textContent = text; m.className = "text-sm text-center mt-2 " + (ok ? "text-green-600" : "text-red-600");
-  setTimeout(function(){ m.textContent=""; }, 2800);
-}
-
-document.getElementById("addBtn").onclick = function(){
-  var name = document.getElementById("name").value.trim();
-  if(!name){ msg("Please enter your name", false); return; }
-  var bagels = [];
-  for(var i=0;i<2;i++){
-    if(i===1 && document.getElementById("block1").classList.contains("hidden")) continue;
-    var b = gatherBagel(i);
-    if(b === "incomplete"){ msg("Bagel "+(i+1)+": pick both a bagel and a spread", false); return; }
-    if(b) bagels.push(b);
-  }
-  if(!bagels.length){ msg("Add at least one bagel (type + spread)", false); return; }
-  var btn = this; btn.disabled = true; btn.textContent = "Adding...";
-  fetch(BASE, {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({action:"add", name:name, bagels:bagels})})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      btn.disabled=false; btn.textContent="Add my order";
-      if(d.ok){
-        document.getElementById("name").value="";
-        document.querySelectorAll('input[type="radio"],input[type="checkbox"]').forEach(function(i){i.checked=false;});
-        document.getElementById("notes0").value=""; document.getElementById("notes1").value="";
-        var blk1 = document.getElementById("block1"); blk1.classList.add("hidden"); document.getElementById("addSecond").classList.remove("hidden");
-        msg("Order added!", true); load();
-      } else { msg(d.error||"Something went wrong", false); }
-    }).catch(function(){ btn.disabled=false; btn.textContent="Add my order"; msg("Network error", false); });
-};
-
-document.getElementById("copyBtn").onclick = function(){
-  navigator.clipboard.writeText(summaryText(current)).then(function(){ msg("Summary copied!", true); }, function(){ msg("Copy failed", false); });
-};
-
-load();
-setInterval(load, 8000);
-</script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <!-- Zoom stays LOCKED deliberately: this is installed as an app, and allowing pinch-zoom
+         would drift any fixed chrome out of place while scrolling. Layouts are built to work
+         at phone width instead of relying on the user zooming out. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#4A2545" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Bar Mitzvah Planner" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>Bar Mitzvah Planner</title>
+  </head>
+  <body>
+    <!-- Launch shell. Paints as soon as the HTML parses, needs no JS and no network; #root's
+         first render covers it (it sits BEHIND #root, and is removed on mount by main.tsx). -->
+    <div id="boot-shell" aria-hidden="true"></div>
+    <style>
+      #boot-shell {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        background: #F6F1EA;
+      }
+      #root { position: relative; z-index: 1; }
+    </style>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>

@@ -1,0 +1,283 @@
+import { useEffect, useState } from 'react';
+import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Sheet } from '../ui/Sheet';
+import { Button } from '../ui/Button';
+import { IconButton } from '../ui/IconButton';
+import { Field, Input, Select } from '../ui/Field';
+import { Toggle } from '../ui/Toggle';
+import { showToast } from '../../hooks/useToast';
+import { confirmDialog } from '../../hooks/useConfirm';
+import { useEventContext } from '../../data/event/context';
+import {
+  createTemplate,
+  deleteTemplate,
+  updateTemplate,
+  type TemplateInput,
+} from '../../data/invitations/mutations';
+import { createDefaultInvitationDesign } from '../../data/invitations/types';
+import { InvitationRenderer, type InvitationRendererEvent } from './InvitationRenderer';
+import type {
+  InvitationBlock,
+  InvitationBlockKind,
+  InvitationDesign,
+  InvitationFontFamily,
+  InvitationTemplateKind,
+  InvitationTemplateRow,
+} from '../../data/invitations/types';
+
+interface TemplateDesignerProps {
+  open: boolean;
+  onClose: () => void;
+  /** `null` — adding a new template. */
+  template: InvitationTemplateRow | null;
+  /** For the live preview and the palette's own fallback — the event's title/name/date/venue and
+   *  its Settings → Style palette (see `InvitationRenderer`'s palette-override-falls-back-to-event
+   *  note). */
+  event: InvitationRendererEvent;
+  photoUrl: string | null;
+  monogramUrl: string | null;
+  onSaved: () => void;
+}
+
+const BLOCK_LABELS: Record<InvitationBlockKind, string> = {
+  heading: 'Heading',
+  names: 'Names',
+  hebrew_line: 'Hebrew line',
+  date: 'Date',
+  venue: 'Venue',
+  photo: 'Photo',
+  monogram: 'Monogram',
+  rsvp_cta: 'RSVP button',
+};
+
+const FONT_OPTIONS: { value: InvitationFontFamily; label: string }[] = [
+  { value: 'fraunces', label: 'Fraunces (display serif)' },
+  { value: 'inter', label: 'Inter (sans)' },
+  { value: 'frank-ruhl-libre', label: 'Frank Ruhl Libre (Hebrew serif)' },
+];
+
+interface FormState {
+  name: string;
+  kind: InvitationTemplateKind;
+  design: InvitationDesign;
+}
+
+function toForm(template: InvitationTemplateRow): FormState {
+  return { name: template.name, kind: template.kind, design: template.design };
+}
+
+function emptyForm(): FormState {
+  return { name: '', kind: 'invitation', design: createDefaultInvitationDesign() };
+}
+
+function moveBlock(blocks: InvitationBlock[], index: number, direction: -1 | 1): InvitationBlock[] {
+  const target = index + direction;
+  if (target < 0 || target >= blocks.length) return blocks;
+  const next = [...blocks];
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
+}
+
+/**
+ * Add/edit sheet for one `bm_invitation_templates` row — a name and kind, a reorderable block
+ * list (toggle each on/off, move up/down; no dnd-kit, per CLAUDE.md), a palette override
+ * (falls back to the event's own Settings → Style palette when left blank) and a font pick, with
+ * a live `InvitationRenderer` preview reflecting every change immediately.
+ */
+export function TemplateDesigner({ open, onClose, template, event, photoUrl, monogramUrl, onSaved }: TemplateDesignerProps) {
+  const { eventId } = useEventContext();
+  const [form, setForm] = useState<FormState>(emptyForm());
+  const [primaryHex, setPrimaryHex] = useState('');
+  const [accentHex, setAccentHex] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const next = template ? toForm(template) : emptyForm();
+    setForm(next);
+    setPrimaryHex(next.design.paletteOverride?.primaryHex ?? '');
+    setAccentHex(next.design.paletteOverride?.accentHex ?? '');
+  }, [open, template]);
+
+  function setDesign(patch: Partial<InvitationDesign>) {
+    setForm((f) => ({ ...f, design: { ...f.design, ...patch } }));
+  }
+
+  function toggleBlock(id: string) {
+    setDesign({ blocks: form.design.blocks.map((b) => (b.id === id ? { ...b, enabled: !b.enabled } : b)) });
+  }
+
+  function moveBlockAt(index: number, direction: -1 | 1) {
+    setDesign({ blocks: moveBlock(form.design.blocks, index, direction) });
+  }
+
+  function applyPaletteHex(which: 'primary' | 'accent', raw: string) {
+    if (which === 'primary') setPrimaryHex(raw);
+    else setAccentHex(raw);
+    const nextPrimary = which === 'primary' ? raw : primaryHex;
+    const nextAccent = which === 'accent' ? raw : accentHex;
+    setDesign({
+      paletteOverride: {
+        primaryHex: nextPrimary.trim() || undefined,
+        accentHex: nextAccent.trim() || undefined,
+      },
+    });
+  }
+
+  async function handleSubmit() {
+    const name = form.name.trim();
+    if (!name) {
+      showToast('Give the template a name.', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const input: TemplateInput = { name, kind: form.kind, design: form.design };
+      if (template) {
+        await updateTemplate(template.id, input);
+      } else {
+        await createTemplate(eventId, input);
+      }
+      showToast('Saved', 'success');
+      onSaved();
+      onClose();
+    } catch {
+      showToast('Could not save — please try again.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!template) return;
+    const ok = await confirmDialog(`Remove "${template.name}"?`, { tone: 'danger', confirmLabel: 'Remove' });
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await deleteTemplate(template.id);
+      showToast('Template removed', 'success');
+      onSaved();
+      onClose();
+    } catch {
+      showToast('Could not remove — please try again.', 'error');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={template ? 'Edit template' : 'Add template'}
+      anchor="drawer"
+      size="lg"
+      footer={
+        <>
+          {template && (
+            <Button type="button" variant="danger" onClick={() => void handleDelete()} disabled={deleting || saving} className="mr-auto">
+              <Trash2 size={14} aria-hidden="true" />
+              {deleting ? 'Removing…' : 'Remove'}
+            </Button>
+          )}
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={() => void handleSubmit()} disabled={saving || deleting}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Name" htmlFor="template-name" required>
+            <Input id="template-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          </Field>
+          <Field label="Kind" htmlFor="template-kind">
+            <Select
+              id="template-kind"
+              value={form.kind}
+              onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as InvitationTemplateKind }))}
+            >
+              <option value="invitation">Invitation</option>
+              <option value="save_the_date">Save the date</option>
+            </Select>
+          </Field>
+        </div>
+
+        <div>
+          <p className="mb-2 text-sm font-medium text-text-secondary">Preview</p>
+          <InvitationRenderer
+            event={event}
+            design={form.design}
+            photoUrl={photoUrl}
+            monogramUrl={monogramUrl}
+            rsvpHref={null}
+          />
+        </div>
+
+        <div className="border-t border-separator pt-4">
+          <p className="mb-2 text-sm font-medium text-text-secondary">Blocks</p>
+          <ul className="flex flex-col divide-y divide-separator-soft rounded-md border border-separator-soft">
+            {form.design.blocks.map((block, index) => (
+              <li key={block.id} className="flex items-center gap-2 px-3 py-2">
+                <div className="flex shrink-0 flex-col">
+                  <IconButton label={`Move ${BLOCK_LABELS[block.kind]} up`} size="sm" disabled={index === 0} onClick={() => moveBlockAt(index, -1)}>
+                    <ChevronUp size={14} aria-hidden="true" />
+                  </IconButton>
+                  <IconButton
+                    label={`Move ${BLOCK_LABELS[block.kind]} down`}
+                    size="sm"
+                    disabled={index === form.design.blocks.length - 1}
+                    onClick={() => moveBlockAt(index, 1)}
+                  >
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </IconButton>
+                </div>
+                <span className="min-w-0 flex-1 truncate text-sm text-text-primary">{BLOCK_LABELS[block.kind]}</span>
+                <Toggle checked={block.enabled} onChange={() => toggleBlock(block.id)} label={`Show ${BLOCK_LABELS[block.kind]}`} />
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-separator pt-4">
+          <p className="text-sm font-medium text-text-secondary">Appearance</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Primary colour" htmlFor="template-primary-hex" hint="Optional — falls back to the event's own palette">
+              <Input
+                id="template-primary-hex"
+                value={primaryHex}
+                onChange={(e) => applyPaletteHex('primary', e.target.value)}
+                placeholder={event.palette?.primaryHex ?? '#72386B'}
+              />
+            </Field>
+            <Field label="Accent colour" htmlFor="template-accent-hex" hint="Optional — falls back to the event's own palette">
+              <Input
+                id="template-accent-hex"
+                value={accentHex}
+                onChange={(e) => applyPaletteHex('accent', e.target.value)}
+                placeholder={event.palette?.accentHex ?? '#856823'}
+              />
+            </Field>
+          </div>
+          <Field label="Font" htmlFor="template-font">
+            <Select
+              id="template-font"
+              value={form.design.fontFamily ?? 'fraunces'}
+              onChange={(e) => setDesign({ fontFamily: e.target.value as InvitationFontFamily })}
+            >
+              {FONT_OPTIONS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      </div>
+    </Sheet>
+  );
+}

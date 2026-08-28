@@ -1,0 +1,174 @@
+@import './tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Stop iOS/Android inflating text when the device rotates or the PWA is installed. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* The app is light-only. Declaring it stops the browser painting dark-mode scrollbars and
+       native control chrome over a light UI when the OS is in dark mode. */
+    color-scheme: light;
+  }
+
+  /* Zoom is locked (see index.html), so the 300ms double-tap-to-zoom wait buys nothing — it
+     just makes every tap feel late. `manipulation` keeps pan/pinch, drops the delay. The grey
+     flash on tap is replaced by the components' own :active/:hover states. */
+  button,
+  a,
+  [role='button'],
+  summary,
+  label,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+    color: var(--text-primary);
+    background-color: var(--bg);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: var(--leading-tight);
+    letter-spacing: -0.01em;
+    /* Stops a one-word last line (widow) on wrapped page/panel titles, common at phone width
+       where headings routinely wrap. */
+    text-wrap: balance;
+  }
+
+  button {
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  input, textarea, select {
+    font-family: inherit;
+    font-size: inherit;
+  }
+}
+
+@layer components {
+  /* Hebrew text — event names, Hebrew dates, blessings. Callers also set `dir="rtl" lang="he"`
+     on the element; this only supplies the typeface. */
+  .font-hebrew {
+    font-family: var(--font-hebrew);
+  }
+}
+
+/* Mobile / installed-PWA viewport lock.
+   overscroll-behavior stops pull-to-refresh and edge rubber-banding from dragging the whole
+   shell around. The dvh overrides pin full-height layouts to the *visible* viewport: 100vh
+   overshoots it whenever mobile browser chrome or the keyboard is up, which is what lets a
+   full-height layout grow past the screen and scroll out of frame. Kept outside @layer so they
+   land after the generated utilities and win the cascade. */
+html,
+body {
+  overscroll-behavior: none;
+}
+
+@supports (height: 100dvh) {
+  .h-screen { height: 100dvh; }
+  .min-h-screen { min-height: 100dvh; }
+}
+
+/* The bottom tab bar's height, in one place. AppShell/MobileTabBar and any floating overlay
+   need to clear it, so it is declared once here rather than hardcoded per component. */
+:root {
+  --tabbar-h: 56px;
+  /* Whoever is drawn hard against the top of the screen owes the notch this padding. index.html
+     sets viewport-fit=cover, so in standalone the app is full-bleed under the status bar. */
+  --app-top-inset: env(safe-area-inset-top);
+}
+
+/* Clear the phone tab bar (and the home-indicator inset) at the bottom of a scroll area. */
+.pb-tabbar {
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+}
+@media (min-width: 1024px) {
+  .pb-tabbar { padding-bottom: 0; }
+}
+
+/* Bottom offset for anything FIXED and floating — an update banner, an install prompt. Below
+   the tab rail's own height at phone width, or the tap lands on the rail underneath it instead
+   of the floating control; back to a plain 1rem once the rail is gone. */
+.bottom-above-tabbar {
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 0.75rem);
+}
+@media (min-width: 1024px) {
+  .bottom-above-tabbar { bottom: 1rem; }
+}
+
+/* Respect the notch/status bar at the top of a full-bleed surface. */
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* BUTTON LABELS DO NOT WRAP ON NARROW SCREENS.
+   A fixed-height button with a wrapping label spills its text out of the pill and across its
+   icon. Holding the label on one line keeps the button at its intrinsic width so the flex row
+   it lives in wraps instead. Scoped below lg so desktop rendering is untouched; opt out per
+   element with data-wrap for a genuinely paragraph-like button. */
+@media (max-width: 1023px) {
+  button:not([data-wrap]),
+  a[role='button']:not([data-wrap]) {
+    white-space: nowrap;
+  }
+}
+
+/* Scroll chaining containment for layered surfaces (Sheet, Menu). Without this, reaching the
+   end of a modal's own scroll hands the remaining momentum to the page behind it, so the
+   record underneath scrolls away while the dialog on top of it is still open. */
+[role='dialog'],
+[role='alertdialog'],
+[data-sheet] {
+  overscroll-behavior: contain;
+}
+
+/* Long list/card bodies: skip layout and paint for rows scrolled out of view.
+   `contain-intrinsic-size` supplies a placeholder height so the scrollbar stays stable and the
+   skipped rows don't collapse the track. Row height is an estimate, not a constraint — rows
+   still size to their content once they enter the viewport. */
+.content-auto-rows {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
+}
+
+.content-auto-cards {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
+/* Motion. Everything above is decoration; a user who has asked their OS for less motion gets
+   transitions collapsed to an instant state change rather than removed entirely (removing them
+   outright loses the state feedback the animation was carrying). Kept last so it wins over
+   utilities and component rules alike. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
