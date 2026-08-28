@@ -78,6 +78,8 @@ export function InvitationPrintPage() {
   return (
     <PrintPageLayout title={`Invitation — ${household.name}`}>
       <InvitationRenderer
+        forPrint
+        animate={false}
         event={rendererEvent}
         design={design}
         householdName={household.name}

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Sparkles, Trash2 } from 'lucide-react';
 import { Sheet } from '../ui/Sheet';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
-import { Field, Input, Select } from '../ui/Field';
+import { Field, Input, Select, Textarea } from '../ui/Field';
 import { Toggle } from '../ui/Toggle';
 import { showToast } from '../../hooks/useToast';
 import { confirmDialog } from '../../hooks/useConfirm';
@@ -15,6 +15,7 @@ import {
   type TemplateInput,
 } from '../../data/invitations/mutations';
 import { createDefaultInvitationDesign } from '../../data/invitations/types';
+import { generateInvitationDesign } from '../../data/invitations/aiDesign';
 import { InvitationRenderer, type InvitationRendererEvent } from './InvitationRenderer';
 import type {
   InvitationBlock,
@@ -91,6 +92,13 @@ export function TemplateDesigner({ open, onClose, template, event, photoUrl, mon
   const [accentHex, setAccentHex] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiMode, setAiMode] = useState<'spec' | 'html'>('spec');
+  const [generating, setGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  /** Non-fatal adjustments the validator or sanitiser made — worth showing so a family knows the
+   *  saved design is not byte-for-byte what the model produced. */
+  const [aiNotes, setAiNotes] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -123,6 +131,47 @@ export function TemplateDesigner({ open, onClose, template, event, photoUrl, mon
         accentHex: nextAccent.trim() || undefined,
       },
     });
+  }
+
+  async function handleGenerate() {
+    const brief = aiPrompt.trim();
+    if (!brief || generating) return;
+
+    setGenerating(true);
+    setAiError(null);
+    setAiNotes([]);
+    try {
+      const outcome = await generateInvitationDesign({
+        eventId,
+        prompt: brief,
+        mode: aiMode,
+        event,
+        // Carried so a regenerate keeps the family's own colours and font rather than resetting
+        // everything they already chose.
+        base: form.design,
+      });
+
+      if (!outcome.ok) {
+        setAiError(outcome.message);
+        return;
+      }
+
+      // Applied to the form only — nothing is written until they press Save, so an unwanted
+      // design costs nothing but another click.
+      setForm((f) => ({ ...f, design: outcome.design }));
+      setAiNotes(outcome.notes);
+      showToast('Design generated — have a look before saving', 'success');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  /** Back to the hand-built block layout, keeping the generated design on the row so switching
+   *  back and forth does not lose it. */
+  function revertToBlocks() {
+    setDesign({ mode: 'blocks' });
+    setAiNotes([]);
+    setAiError(null);
   }
 
   async function handleSubmit() {
@@ -205,6 +254,74 @@ export function TemplateDesigner({ open, onClose, template, event, photoUrl, mon
               <option value="save_the_date">Save the date</option>
             </Select>
           </Field>
+        </div>
+
+        <div className="flex flex-col gap-3 rounded-lg border border-separator-soft bg-canvas-raised p-3">
+          <div className="flex items-center gap-2">
+            <Sparkles size={15} aria-hidden="true" className="text-plum-700" />
+            <p className="text-sm font-medium text-text-secondary">Design with AI</p>
+          </div>
+
+          <Field
+            label="Describe the look you want"
+            htmlFor="ai-brief"
+            hint="The date, venue and names are taken from your event — describe style and mood."
+          >
+            <Textarea
+              id="ai-brief"
+              rows={3}
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="Warm and traditional, deep navy and gold, a Star of David above the names."
+            />
+          </Field>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Style of design" htmlFor="ai-mode">
+              <Select id="ai-mode" value={aiMode} onChange={(e) => setAiMode(e.target.value as 'spec' | 'html')}>
+                <option value="spec">Guided — matches the app, prints well</option>
+                <option value="html">Free-form — more creative, preview only</option>
+              </Select>
+            </Field>
+            <div className="flex items-end">
+              <Button type="button" onClick={() => void handleGenerate()} disabled={generating || !aiPrompt.trim()} className="w-full">
+                {generating ? 'Designing…' : 'Generate'}
+              </Button>
+            </div>
+          </div>
+
+          {aiError && (
+            <p role="alert" className="rounded-md bg-danger-bg px-3 py-2 text-xs text-danger-text">
+              {aiError}
+            </p>
+          )}
+
+          {aiNotes.length > 0 && (
+            <ul className="list-disc pl-5 text-xs text-text-muted">
+              {aiNotes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          )}
+
+          {form.design.mode && form.design.mode !== 'blocks' && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+              <span>
+                Showing the {form.design.mode === 'spec' ? 'guided' : 'free-form'} AI design
+                {form.design.generated?.model ? ` (${form.design.generated.model})` : ''}.
+              </span>
+              <Button type="button" variant="secondary" size="sm" onClick={revertToBlocks}>
+                Use the block layout instead
+              </Button>
+            </div>
+          )}
+
+          {form.design.mode === 'html' && (
+            <p className="text-xs text-text-muted">
+              Free-form designs render in a sandbox and are not included in the printed invitation —
+              the block layout is used for printing.
+            </p>
+          )}
         </div>
 
         <div>

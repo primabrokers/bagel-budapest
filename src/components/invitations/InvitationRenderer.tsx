@@ -47,6 +47,13 @@ interface InvitationRendererProps {
   /** Passed through to a generated design's reveal animation. Print and thumbnail callers pass
    *  `false` so a capture never catches a half-faded invitation. */
   animate?: boolean;
+  /**
+   * Set on the print route. A `spec` design prints fine — it is ordinary markup — but an `html`
+   * design lives in a sandboxed iframe, and browsers do not reliably paginate or even paint an
+   * iframe's contents when printing. So for print, `html` mode falls through to the block layout,
+   * which is why every generated design keeps its blocks. The designer tells the family this.
+   */
+  forPrint?: boolean;
   className?: string;
 }
 
@@ -76,6 +83,7 @@ export function InvitationRenderer({
   monogramUrl,
   backgroundUrl,
   animate,
+  forPrint,
   className,
 }: InvitationRendererProps) {
   /*
@@ -100,7 +108,7 @@ export function InvitationRenderer({
     }
   }
 
-  if (design.mode === 'html') {
+  if (design.mode === 'html' && !forPrint) {
     const { html } = sanitiseInvitationHtml(design.generated?.html);
     if (html) {
       return (
