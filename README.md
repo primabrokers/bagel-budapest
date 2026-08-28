@@ -29,6 +29,10 @@ the `CRM_NEW` repo's `docs/barmitzvah-planner-plan.md` for the full build plan.
 
 ## Deploying
 
+Live at **https://barmitzvah-planner.vercel.app** — Vercel project `barmitzvah-planner` on the
+`primabrokers-projects` team, linked to this repository with `master` as the production branch, so
+every push to `master` deploys.
+
 This app is a static SPA (`npm run build` → `dist/`) deployed to Vercel. It needs **no
 environment variables**: `src/lib/supabaseConfig.ts` carries committed defaults for the Supabase
 URL and anon key, so importing the repo and deploying is enough.
