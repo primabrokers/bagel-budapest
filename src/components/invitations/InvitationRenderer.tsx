@@ -1,6 +1,9 @@
 import { formatDateLong, toLocalDateOnly } from '../../lib/format';
 import { formatHebrewDate } from '../../lib/hebrewDate';
 import { cn } from '../../lib/cn';
+import { parseInvitationDesignSpec } from '../../lib/invitations/designSpec';
+import { INVITATION_IFRAME_SANDBOX, sanitiseInvitationHtml } from '../../lib/invitations/sanitiseInvitationHtml';
+import { GeneratedInvitation } from './GeneratedInvitation';
 import type { InvitationDesign, InvitationPaletteOverride } from '../../data/invitations/types';
 
 /**
@@ -39,6 +42,11 @@ interface InvitationRendererProps {
   photoUrl?: string | null;
   /** Same as `photoUrl`, for `monogram_path`. */
   monogramUrl?: string | null;
+  /** Same again, for an AI-generated design's `backgroundAssetPath` in `bm-invitation-assets`. */
+  backgroundUrl?: string | null;
+  /** Passed through to a generated design's reveal animation. Print and thumbnail callers pass
+   *  `false` so a capture never catches a half-faded invitation. */
+  animate?: boolean;
   className?: string;
 }
 
@@ -66,8 +74,49 @@ export function InvitationRenderer({
   rsvpHref,
   photoUrl,
   monogramUrl,
+  backgroundUrl,
+  animate,
   className,
 }: InvitationRendererProps) {
+  /*
+    Generated modes come first, but every one of them can fall through to the block layout below.
+    That is deliberate: `design` is an unconstrained jsonb column, so a row can hold a spec that
+    fails validation or markup that sanitises to nothing, and the person most likely to be looking
+    when it does is a guest on the public portal. A slightly plainer invitation beats a blank card.
+  */
+  if (design.mode === 'spec') {
+    const { spec } = parseInvitationDesignSpec(design.generated?.spec);
+    if (spec) {
+      return (
+        <GeneratedInvitation
+          spec={spec}
+          backgroundUrl={backgroundUrl}
+          householdName={householdName}
+          rsvpHref={rsvpHref}
+          animate={animate}
+          className={className}
+        />
+      );
+    }
+  }
+
+  if (design.mode === 'html') {
+    const { html } = sanitiseInvitationHtml(design.generated?.html);
+    if (html) {
+      return (
+        <iframe
+          // The sandbox is the security boundary for generated markup, NOT the sanitiser — see
+          // lib/invitations/sanitiseInvitationHtml.ts. It grants nothing: no scripts, no
+          // same-origin, so the frame cannot reach this app's session or storage.
+          sandbox={INVITATION_IFRAME_SANDBOX}
+          srcDoc={html}
+          title="Invitation preview"
+          className={cn('h-[32rem] w-full rounded-xl border border-separator bg-surface', className)}
+        />
+      );
+    }
+  }
+
   const dateObj = toLocalDateOnly(event.event_date);
   const primaryHex = design.paletteOverride?.primaryHex ?? event.palette?.primaryHex;
   const accentHex = design.paletteOverride?.accentHex ?? event.palette?.accentHex;
@@ -86,7 +135,7 @@ export function InvitationRenderer({
         <p className="font-sans text-xs uppercase tracking-[.08em] text-text-muted">Dear {householdName},</p>
       )}
 
-      {design.blocks
+      {(design.blocks ?? [])
         .filter((block) => block.enabled)
         .map((block) => {
           switch (block.kind) {

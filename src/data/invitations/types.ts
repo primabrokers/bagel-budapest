@@ -68,12 +68,42 @@ export interface InvitationPaletteOverride {
   accentHex?: string;
 }
 
+/**
+ * How a template is drawn.
+ *
+ *   - `blocks`    — the hand-built designer: toggle and reorder the block kinds above. The
+ *                   original mode, and still the default for a template with no `mode` set, so
+ *                   every template written before AI design existed keeps rendering unchanged.
+ *   - `spec`      — an AI-generated design, validated into the closed shape in
+ *                   `lib/invitations/designSpec.ts` and drawn with this app's own components.
+ *   - `html`      — raw generated markup, rendered ONLY inside a scriptless sandboxed iframe
+ *                   (`lib/invitations/sanitiseInvitationHtml.ts`). Never printed, never inlined.
+ */
+export type InvitationDesignMode = 'blocks' | 'spec' | 'html';
+
+export interface InvitationGenerated {
+  /** The prompt the family typed, kept so "regenerate" and "tweak this" have something to build
+   *  on, and so a design can be explained months later. */
+  prompt?: string;
+  /** Free-form because `designSpec.ts` owns the real shape and re-validates on every render —
+   *  typing it here as the parsed interface would imply a guarantee this column cannot make. */
+  spec?: unknown;
+  /** `html` mode only. Stored already-sanitised; sanitised again on render regardless. */
+  html?: string;
+  /** Which model produced it, for cost attribution and for reproducing a look later. */
+  model?: string;
+  generatedAt?: string;
+}
+
 export interface InvitationDesign {
   blocks: InvitationBlock[];
   /** Falls back to the event's own palette (Settings → Style) when unset — a template only
    *  overrides it when a family wants THIS invitation to look different from the rest of the app. */
   paletteOverride?: InvitationPaletteOverride;
   fontFamily?: InvitationFontFamily;
+  /** Absent on every template built before AI design shipped — treat as `'blocks'`. */
+  mode?: InvitationDesignMode;
+  generated?: InvitationGenerated;
 }
 
 export interface InvitationTemplateRow {
