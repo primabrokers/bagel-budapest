@@ -1,4 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Navigate } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -36,8 +38,9 @@ function friendlyAuthError(mode: Mode, rawMessage: string): string {
 
 /**
  * Email/password sign-in AND sign-up, one page, toggled by `mode`. Renders at `/login`, outside
- * `AppShell`'s auth-gated layout. On success there is nothing further to do here: `AppShell`'s
- * own `onAuthStateChange` subscription picks up the new session and re-renders past this page.
+ * `AppShell`'s auth-gated layout — which is precisely why this page has to watch the session
+ * itself and redirect (see `hasSession` below). `AppShell` is not mounted on `/login`, so its
+ * `onAuthStateChange` subscription does not exist here and cannot carry the user onwards.
  */
 export function SignInPage() {
   const [mode, setMode] = useState<Mode>('sign-in');
@@ -45,6 +48,34 @@ export function SignInPage() {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // `null` while the stored session is still being read — see the effect below.
+  const [hasSession, setHasSession] = useState<boolean | null>(null);
+
+  /*
+    `/login` sits OUTSIDE the `AppShell` route (routes.tsx), so nothing else in the tree is
+    watching auth while this page is on screen. Without this effect a successful sign-in updates
+    GoTrue and localStorage, the network call returns 200 — and the user is left sitting on the
+    form with no feedback, pressing the button again, because no route change ever happens.
+
+    Three cases land here: arriving at /login while already signed in, a sign-in completing, and
+    a sign-up that returns a session immediately (email confirmation disabled).
+  */
+  useEffect(() => {
+    let cancelled = false;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!cancelled) setHasSession(Boolean(data.session));
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!cancelled) setHasSession(Boolean(session));
+    });
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -59,7 +90,7 @@ export function SignInPage() {
 
     setSubmitting(true);
     try {
-      const { error: authError } =
+      const { data, error: authError } =
         mode === 'sign-in'
           ? await supabase.auth.signInWithPassword({ email: trimmedEmail, password })
           : await supabase.auth.signUp({ email: trimmedEmail, password });
@@ -69,8 +100,11 @@ export function SignInPage() {
         return;
       }
 
-      if (mode === 'sign-up') {
-        showToast('Account created — check your email if confirmation is needed.', 'success');
+      // With email confirmation disabled signUp() returns a session and the effect above
+      // redirects straight into the app, so sending that user off to their inbox would be
+      // wrong. Only prompt when there is genuinely no session to carry on with.
+      if (mode === 'sign-up' && !data.session) {
+        showToast('Account created — check your email to confirm it.', 'success');
       }
     } catch {
       // A network failure, or the placeholder client this app falls back to when no real .env
@@ -83,6 +117,18 @@ export function SignInPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Signed in — leave. `replace` so Back doesn't bounce the user straight back to the form.
+  if (hasSession) return <Navigate to="/" replace />;
+
+  // Reading the stored session, so we don't flash the form at someone already signed in.
+  if (hasSession === null) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-canvas">
+        <Loader2 className="h-6 w-6 animate-spin text-text-muted" aria-hidden="true" />
+      </div>
+    );
   }
 
   return (
