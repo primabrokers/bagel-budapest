@@ -10,6 +10,8 @@ import { supabasePublic } from '../lib/supabasePublic';
 import { cn } from '../lib/cn';
 import { formatDateTime } from '../lib/format';
 import { InvitationRenderer, type InvitationRendererEvent } from '../components/invitations/InvitationRenderer';
+import { invitationAssetUrl } from '../lib/invitations/assetUrl';
+import { parseInvitationDesignSpec } from '../lib/invitations/designSpec';
 import { createDefaultInvitationDesign } from '../data/invitations/types';
 
 /* -----------------------------------------------------------------------------------------------
@@ -384,6 +386,7 @@ export function RsvpPortalPage() {
         event={rendererEvent}
         design={design}
         householdName={response.household.name}
+        backgroundUrl={invitationAssetUrl(parseInvitationDesignSpec(design.generated?.spec).spec?.backgroundAssetPath)}
         className="w-full max-w-md"
       />
 

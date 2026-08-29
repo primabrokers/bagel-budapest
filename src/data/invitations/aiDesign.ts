@@ -74,6 +74,45 @@ export function extractHtmlFragment(raw: string): string {
   return (fenced ? fenced[1] : raw).trim();
 }
 
+export type AiImageOutcome =
+  | { ok: true; path: string; model: string }
+  | { ok: false; reason: AiDesignFailure; message: string };
+
+/**
+ * Generates a decorative background and returns its STORAGE PATH — never a URL. The path is what
+ * `isSafeAssetPath` validates before it can reach an `<img src>` on the public RSVP portal; a URL
+ * from a response body would be an arbitrary origin nobody had checked.
+ */
+export async function generateInvitationBackground(args: {
+  eventId: string;
+  prompt: string;
+  provider?: 'huggingface' | 'openai';
+}): Promise<AiImageOutcome> {
+  const { data, error } = await supabase.functions.invoke<{
+    ok?: boolean;
+    path?: string;
+    model?: string;
+    reason?: string;
+    message?: string;
+  }>('bm_ai_image', {
+    body: { eventId: args.eventId, prompt: args.prompt, provider: args.provider },
+  });
+
+  if (error) {
+    return { ok: false, reason: 'failed', message: 'Could not reach the artwork service. Please try again.' };
+  }
+
+  if (!data?.ok || !data.path) {
+    const reason = data?.reason;
+    if (reason === 'not_configured' || reason === 'rate_limited' || reason === 'unauthorized') {
+      return { ok: false, reason, message: data?.message ?? 'Artwork generation is unavailable.' };
+    }
+    return { ok: false, reason: 'failed', message: data?.message ?? 'Could not generate artwork.' };
+  }
+
+  return { ok: true, path: data.path, model: data.model ?? 'unknown' };
+}
+
 export async function generateInvitationDesign(args: GenerateDesignArgs): Promise<AiDesignOutcome> {
   const { data, error } = await supabase.functions.invoke<EdgeResponse>('bm_ai_design', {
     body: {

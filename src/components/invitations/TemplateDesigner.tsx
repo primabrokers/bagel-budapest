@@ -15,7 +15,9 @@ import {
   type TemplateInput,
 } from '../../data/invitations/mutations';
 import { createDefaultInvitationDesign } from '../../data/invitations/types';
-import { generateInvitationDesign } from '../../data/invitations/aiDesign';
+import { generateInvitationBackground, generateInvitationDesign } from '../../data/invitations/aiDesign';
+import { parseInvitationDesignSpec } from '../../lib/invitations/designSpec';
+import { invitationAssetUrl } from '../../lib/invitations/assetUrl';
 import { InvitationRenderer, type InvitationRendererEvent } from './InvitationRenderer';
 import type {
   InvitationBlock,
@@ -99,6 +101,7 @@ export function TemplateDesigner({ open, onClose, template, event, photoUrl, mon
   /** Non-fatal adjustments the validator or sanitiser made — worth showing so a family knows the
    *  saved design is not byte-for-byte what the model produced. */
   const [aiNotes, setAiNotes] = useState<string[]>([]);
+  const [generatingImage, setGeneratingImage] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -163,6 +166,41 @@ export function TemplateDesigner({ open, onClose, template, event, photoUrl, mon
       showToast('Design generated — have a look before saving', 'success');
     } finally {
       setGenerating(false);
+    }
+  }
+
+  /**
+   * Adds generated artwork behind a `spec` design. Only offered once a spec exists: the path is
+   * stored INSIDE the spec, so there is nowhere to put it before there is a design to put it in.
+   */
+  async function handleGenerateArtwork() {
+    const brief = aiPrompt.trim();
+    if (!brief || generatingImage) return;
+
+    const current = parseInvitationDesignSpec(form.design.generated?.spec).spec;
+    if (!current) {
+      setAiError('Generate a design first — artwork sits behind one.');
+      return;
+    }
+
+    setGeneratingImage(true);
+    setAiError(null);
+    try {
+      const outcome = await generateInvitationBackground({ eventId, prompt: brief });
+      if (!outcome.ok) {
+        setAiError(outcome.message);
+        return;
+      }
+      setForm((f) => ({
+        ...f,
+        design: {
+          ...f.design,
+          generated: { ...f.design.generated, spec: { ...current, backgroundAssetPath: outcome.path } },
+        },
+      }));
+      showToast('Artwork added', 'success');
+    } finally {
+      setGeneratingImage(false);
     }
   }
 
@@ -290,6 +328,19 @@ export function TemplateDesigner({ open, onClose, template, event, photoUrl, mon
             </div>
           </div>
 
+          {form.design.mode === 'spec' && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleGenerateArtwork()}
+              disabled={generatingImage || !aiPrompt.trim()}
+              className="self-start"
+            >
+              {generatingImage ? 'Drawing…' : 'Add artwork behind it'}
+            </Button>
+          )}
+
           {aiError && (
             <p role="alert" className="rounded-md bg-danger-bg px-3 py-2 text-xs text-danger-text">
               {aiError}
@@ -331,6 +382,7 @@ export function TemplateDesigner({ open, onClose, template, event, photoUrl, mon
             design={form.design}
             photoUrl={photoUrl}
             monogramUrl={monogramUrl}
+            backgroundUrl={invitationAssetUrl(parseInvitationDesignSpec(form.design.generated?.spec).spec?.backgroundAssetPath)}
             rsvpHref={null}
           />
         </div>

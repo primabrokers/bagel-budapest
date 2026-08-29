@@ -9,6 +9,8 @@ import { useGuestBook } from '../../data/guests/hooks';
 import { useInvitationTemplates, useRsvpLinks } from '../../data/invitations/hooks';
 import { createDefaultInvitationDesign } from '../../data/invitations/types';
 import { InvitationRenderer, type InvitationRendererEvent } from '../../components/invitations/InvitationRenderer';
+import { invitationAssetUrl } from '../../lib/invitations/assetUrl';
+import { parseInvitationDesignSpec } from '../../lib/invitations/designSpec';
 
 /** `bm-branding` is a PUBLIC bucket (migration 6) — a public URL is a pure string build, no
  *  network round trip, so this stays a plain synchronous helper rather than another `useFetch`
@@ -86,6 +88,7 @@ export function InvitationPrintPage() {
         rsvpHref={rsvpHref}
         photoUrl={publicBrandingUrl(event.logo_path)}
         monogramUrl={publicBrandingUrl(event.monogram_path)}
+        backgroundUrl={invitationAssetUrl(parseInvitationDesignSpec(design.generated?.spec).spec?.backgroundAssetPath)}
       />
     </PrintPageLayout>
   );
