@@ -1,14 +1,7 @@
-// Deno Edge Function code — not a browser/Node module. `Deno` is a real global at runtime; this
-// ambient declaration exists only so the repo-wide `eslint .` sweep (which lints every .ts file,
-// this directory included, under `globals.browser` — see eslint.config.js) doesn't flag it as
-// undefined. Kept intentionally minimal: only the members this file uses.
-declare const Deno: {
-  env: { get(key: string): string | undefined };
-};
-
 import Anthropic from 'npm:@anthropic-ai/sdk@0.70.1';
 import { buildSystemPrompt, buildUserPrompt } from './designPrompt.ts';
 import type { GenerateDesignInput, GenerateDesignResult, TextProvider } from './textProvider.ts';
+import { secret } from './secrets.ts';
 
 /**
  * Claude Opus 5. Chosen for the design work because the hard part here is not prose but judgement
@@ -25,7 +18,7 @@ const MODEL = 'claude-opus-5';
 const MAX_TOKENS = 16_000;
 
 function apiKey(): string | undefined {
-  return Deno.env.get('ANTHROPIC_API_KEY');
+  return secret('ANTHROPIC_API_KEY');
 }
 
 export const anthropicAdapter: TextProvider = {

@@ -1,10 +1,11 @@
-// Deno Edge Function code — see bm_ai_design/_shared/anthropicAdapter.ts for why `Deno` is
-// declared here rather than imported.
+// Deno Edge Function code — see this function's index.ts for why `Deno` is declared here
+// rather than imported.
 declare const Deno: {
   env: { get(key: string): string | undefined };
 };
 
 import type { GenerateImageInput, GenerateImageResult, ImageProvider } from './imageProvider.ts';
+import { secret } from './secrets.ts';
 
 /**
  * Hugging Face text-to-image.
@@ -31,7 +32,7 @@ const DEFAULT_BASE_URL = 'https://api-inference.huggingface.co/models';
 const DEFAULT_MODEL = 'Qwen/Qwen-Image';
 
 function apiKey(): string | undefined {
-  return Deno.env.get('HF_TOKEN');
+  return secret('HF_TOKEN');
 }
 
 export const huggingfaceAdapter: ImageProvider = {

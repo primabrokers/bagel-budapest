@@ -11,6 +11,7 @@ import { grokAdapter } from './_shared/grokAdapter.ts';
 import { openaiAdapter } from './_shared/openaiAdapter.ts';
 import { checkUsage, recordUsage } from './_shared/usage.ts';
 import type { DesignEventContext, DesignMode, TextProvider } from './_shared/textProvider.ts';
+import { primeSecrets } from './_shared/secrets.ts';
 
 /**
  * `bm_ai_design` — turns a family's written brief into an invitation design.
@@ -124,6 +125,11 @@ Deno.serve(async (req: Request) => {
       400,
     );
   }
+
+  // Resolve every provider key BEFORE any provider is consulted: `isConfigured()` is
+  // synchronous, so a key living in the Vault rather than the environment has to be in hand
+  // by the time it is called, or a perfectly well-configured deploy reports itself unconfigured.
+  await primeSecrets(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'XAI_API_KEY']);
 
   const provider = PROVIDERS[body.provider ?? DEFAULT_PROVIDER];
   if (!provider) {

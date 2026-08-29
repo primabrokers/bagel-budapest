@@ -1,9 +1,10 @@
-// Deno Edge Function code — see bm_ai_design/_shared/anthropicAdapter.ts for the `Deno` note.
+// Deno Edge Function code — see this function's index.ts for the `Deno` note.
 declare const Deno: {
   env: { get(key: string): string | undefined };
 };
 
 import type { GenerateImageInput, GenerateImageResult, ImageProvider } from './imageProvider.ts';
+import { secret } from './secrets.ts';
 
 /**
  * OpenAI image generation, as the alternative to Hugging Face.
@@ -25,7 +26,7 @@ interface ImageResponse {
 }
 
 function apiKey(): string | undefined {
-  return Deno.env.get('OPENAI_API_KEY');
+  return secret('OPENAI_API_KEY');
 }
 
 function decodeBase64(value: string): Uint8Array {

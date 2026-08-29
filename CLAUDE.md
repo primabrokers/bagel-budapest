@@ -63,6 +63,29 @@ To keep the two worlds apart:
   **both** applied via the Supabase MCP **and** committed to the repo — a migration applied only
   remotely, or committed but never run, are both half-done.
 
+### API keys live in the Vault, never in a table or the bundle
+
+Provider keys (`ANTHROPIC_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`, `XAI_API_KEY`, `RESEND_API_KEY`)
+can be set two ways: as Edge Function environment secrets, or by a family member in
+**Settings → API keys**, which stores them in **Supabase Vault** under a `bm_ai_`-prefixed name.
+`_shared/secrets.ts` in each function resolves environment first, Vault second, so a dashboard
+secret always beats one typed into the app.
+
+The rules that make that safe, none of which are optional:
+
+- `anon` and `authenticated` have **no USAGE on the `vault` schema**. That, not any application
+  code, is the boundary. Never grant it.
+- `bm_ai_secret_get` / `_set` / `_clear` are SECURITY DEFINER wrappers in `public` (they have to
+  be — PostgREST exposes only `public`), with EXECUTE **revoked from public/anon/authenticated and
+  granted to `service_role` alone**, a pinned `search_path`, and a hard whitelist of secret names.
+  The whitelist is what keeps this app away from any secret belonging to the legacy app sharing
+  this project. Adding a key means adding it to `bm_ai_secret_allowed()` *and* to
+  `bm_ai_keys/_shared/keyCatalogue.ts`.
+- **There is no way to read a key back to the browser, and there must never be one.** The
+  `bm_ai_keys` function has no `get` action; `list` returns `last4` only. `bm_ai_key_status` is a
+  metadata mirror holding no secret material.
+- Never put a key in a `VITE_*` variable — Vite inlines those into the public bundle.
+
 ## Conventions
 
 - **UK English, GBP.** Dates and money are British, always.

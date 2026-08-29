@@ -1,10 +1,11 @@
-// Deno Edge Function code — see the note in `anthropicAdapter.ts` for why `Deno` is declared here.
+// Deno Edge Function code — see the note in `index.ts` for why `Deno` is declared here.
 declare const Deno: {
   env: { get(key: string): string | undefined };
 };
 
 import { buildSystemPrompt, buildUserPrompt } from './designPrompt.ts';
 import type { GenerateDesignInput, GenerateDesignResult, TextProvider } from './textProvider.ts';
+import { secret } from './secrets.ts';
 
 /**
  * OpenAI and xAI both expose the same `/chat/completions` request and response shape, so one
@@ -41,7 +42,7 @@ interface ChatCompletionResponse {
 
 export function createOpenAiCompatibleAdapter(config: OpenAiCompatibleConfig): TextProvider {
   function apiKey(): string | undefined {
-    return Deno.env.get(config.keyEnv);
+    return secret(config.keyEnv);
   }
 
   return {

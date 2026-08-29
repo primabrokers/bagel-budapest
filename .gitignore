@@ -3,3 +3,6 @@ dist
 .env
 *.tsbuildinfo
 .DS_Store
+
+# Supabase CLI scratch
+supabase/.temp/

@@ -1,6 +1,7 @@
 import { supabase } from '../../lib/supabase';
 import { logActivity } from '../activity/log';
 import type { EventMemberRow, EventRow, FunctionKind, FunctionRow } from './types';
+import { buildFamilyInviteMessage, normaliseInviteEmail, type InviteMessage } from '../../lib/invites/inviteMessage';
 
 export async function updateEvent(eventId: string, patch: Partial<EventRow>): Promise<void> {
   const { error } = await supabase.from('bm_events').update(patch).eq('id', eventId);
@@ -98,28 +99,99 @@ export async function reorderFunctions(updates: { id: string; sort_order: number
   if (failed?.error) throw failed.error;
 }
 
+/** What happened to the notification, so the caller can tell the family whether to chase it up
+ *  themselves. The membership row is created either way — the email is the courtesy, not the
+ *  mechanism. */
+export type InviteDelivery = 'emailed' | 'email_not_configured' | 'email_failed';
+
+export interface InviteResult {
+  member: EventMemberRow;
+  delivery: InviteDelivery;
+  /** The message that was sent, or would have been — so an undelivered invite can be copied into
+   *  WhatsApp instead of being silently lost. */
+  message: InviteMessage;
+}
+
 export async function inviteFamilyMember(
   eventId: string,
   email: string,
-  displayName?: string,
-): Promise<EventMemberRow> {
-  const trimmedEmail = email.trim();
+  options: { displayName?: string; boyName: string; invitedBy?: string | null; appUrl: string },
+): Promise<InviteResult> {
+  // Lowercased before it is ever stored. bm_ensure_event_provisioned() claims an invite by
+  // matching it against the signing-in user's address, and Supabase stores those lowercased — so
+  // an invite kept as typed ("Sara@Gmail.com") is one nobody can ever claim.
+  const inviteEmail = normaliseInviteEmail(email);
+  if (!inviteEmail) throw new Error('That does not look like an email address.');
+
   const { data, error } = await supabase
     .from('bm_event_members')
-    .insert({ event_id: eventId, invited_email: trimmedEmail, display_name: displayName?.trim() || null })
+    .insert({ event_id: eventId, invited_email: inviteEmail, display_name: options.displayName?.trim() || null })
     .select('*')
     .single();
   if (error) throw error;
   const row = data as EventMemberRow;
+
   await logActivity({
     eventId,
     action: 'family_member_invited',
     entityType: 'event_member',
     entityId: row.id,
-    summary: `Invited ${trimmedEmail} to the family`,
+    summary: `Invited ${inviteEmail} to the family`,
     after: row,
   });
-  return row;
+
+  const message = buildFamilyInviteMessage({
+    appUrl: options.appUrl,
+    inviteEmail,
+    boyName: options.boyName,
+    invitedBy: options.invitedBy,
+  });
+
+  // The invite is REAL once the row exists — the email only tells them about it. So a failure
+  // here is reported back rather than thrown: rolling the membership back because an email
+  // bounced would be the wrong trade, and the caller can offer the text to send by hand.
+  let delivery: InviteDelivery = 'email_failed';
+  try {
+    const { data: sent, error: sendError } = await supabase.functions.invoke<{ ok?: boolean; reason?: string }>(
+      'send-email',
+      { body: { to: inviteEmail, subject: message.subject, html: message.html, text: message.text } },
+    );
+    if (sendError) delivery = 'email_failed';
+    else if (sent?.ok) delivery = 'emailed';
+    else if (sent?.reason === 'not_configured') delivery = 'email_not_configured';
+  } catch {
+    delivery = 'email_failed';
+  }
+
+  return { member: row, delivery, message };
+}
+
+/** Re-send (or first-send) the invite message for a member who has not joined yet. */
+export async function resendFamilyInvite(
+  member: EventMemberRow,
+  options: { boyName: string; invitedBy?: string | null; appUrl: string },
+): Promise<{ delivery: InviteDelivery; message: InviteMessage }> {
+  const inviteEmail = member.invited_email ? normaliseInviteEmail(member.invited_email) : null;
+  if (!inviteEmail) throw new Error('This member has no email address to invite.');
+
+  const message = buildFamilyInviteMessage({
+    appUrl: options.appUrl,
+    inviteEmail,
+    boyName: options.boyName,
+    invitedBy: options.invitedBy,
+  });
+
+  try {
+    const { data: sent, error } = await supabase.functions.invoke<{ ok?: boolean; reason?: string }>('send-email', {
+      body: { to: inviteEmail, subject: message.subject, html: message.html, text: message.text },
+    });
+    if (error) return { delivery: 'email_failed', message };
+    if (sent?.ok) return { delivery: 'emailed', message };
+    if (sent?.reason === 'not_configured') return { delivery: 'email_not_configured', message };
+    return { delivery: 'email_failed', message };
+  } catch {
+    return { delivery: 'email_failed', message };
+  }
 }
 
 /** Confirm with the user before calling this — it does not ask itself. */

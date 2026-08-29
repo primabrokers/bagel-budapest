@@ -8,6 +8,7 @@ import { huggingfaceAdapter } from './_shared/huggingfaceAdapter.ts';
 import { openaiImageAdapter } from './_shared/openaiImageAdapter.ts';
 import { checkUsage, recordUsage } from './_shared/usage.ts';
 import type { ImageProvider } from './_shared/imageProvider.ts';
+import { primeSecrets } from './_shared/secrets.ts';
 
 /**
  * `bm_ai_image` — generates decorative artwork for an invitation and stores it.
@@ -104,6 +105,11 @@ Deno.serve(async (req: Request) => {
     return json({ ok: false, reason: 'invalid_request', message: '"eventId" and "prompt" are required.' }, 400);
   }
   const eventId = body.eventId;
+
+  // Resolve every provider key BEFORE any provider is consulted: `isConfigured()` is
+  // synchronous, so a key living in the Vault rather than the environment has to be in hand
+  // by the time it is called, or a perfectly well-configured deploy reports itself unconfigured.
+  await primeSecrets(['HF_TOKEN', 'OPENAI_API_KEY']);
 
   const provider = PROVIDERS[typeof body.provider === 'string' ? body.provider : DEFAULT_PROVIDER];
   if (!provider) {

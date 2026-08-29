@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Mail, Trash2, UserPlus } from 'lucide-react';
+import { Copy, Mail, Send, Trash2, UserPlus } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
@@ -9,23 +9,59 @@ import { Field, Input } from '../ui/Field';
 import { showToast } from '../../hooks/useToast';
 import { confirmDialog } from '../../hooks/useConfirm';
 import { useEventContext } from '../../data/event/context';
-import { inviteFamilyMember, removeFamilyMember } from '../../data/event/mutations';
+import {
+  inviteFamilyMember,
+  removeFamilyMember,
+  resendFamilyInvite,
+  type InviteDelivery,
+} from '../../data/event/mutations';
 import type { EventMemberRow } from '../../data/event/types';
+import type { InviteMessage } from '../../lib/invites/inviteMessage';
 
 interface FamilyAccessSectionProps {
   members: EventMemberRow[];
+  boyName: string;
   onChanged: () => void;
 }
 
-/** Who can plan this Bar Mitzvah: every claimed and pending `bm_event_members` row, plus an
- *  invite-by-email mini form. Every signed-in family member has full access — this is about who
- *  can get in at all, not permissions once they're in. */
-export function FamilyAccessSection({ members, onChanged }: FamilyAccessSectionProps) {
+/**
+ * Who can plan this Bar Mitzvah: every claimed and pending `bm_event_members` row, plus an
+ * invite-by-email form. Every signed-in family member has full access — this is about who can get
+ * in at all, not permissions once they are in.
+ *
+ * The reason this screen carries so much explanatory text is that the invite mechanism is
+ * invisible. There is no invite link with a token in it: the row records an email address, and
+ * signing up with THAT address is what claims it. Somebody who signs up with a different address
+ * gets a working app that shows them nothing. So the instruction has to reach them, and when
+ * email is not configured the message is offered for copying rather than quietly dropped.
+ */
+export function FamilyAccessSection({ members, boyName, onChanged }: FamilyAccessSectionProps) {
   const { eventId } = useEventContext();
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [inviting, setInviting] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingMessage, setPendingMessage] = useState<{ email: string; message: InviteMessage } | null>(null);
+
+  /** Where the invited person should go. Read from the browser so a preview deploy invites people
+   *  to the preview, not to production. */
+  const appUrl = typeof window !== 'undefined' ? window.location.origin : '';
+
+  function reportDelivery(delivery: InviteDelivery, to: string, message: InviteMessage) {
+    if (delivery === 'emailed') {
+      showToast(`Invite emailed to ${to}`, 'success');
+      setPendingMessage(null);
+      return;
+    }
+    // Not an error: the invite itself is live. They just have to be told about it by hand.
+    setPendingMessage({ email: to, message });
+    showToast(
+      delivery === 'email_not_configured'
+        ? 'Invite created — email is not set up, so send them the message below.'
+        : 'Invite created, but the email would not send. Send them the message below.',
+      'info',
+    );
+  }
 
   async function handleInvite(e: FormEvent) {
     e.preventDefault();
@@ -36,15 +72,45 @@ export function FamilyAccessSection({ members, onChanged }: FamilyAccessSectionP
     }
     setInviting(true);
     try {
-      await inviteFamilyMember(eventId, trimmedEmail, displayName.trim() || undefined);
+      const result = await inviteFamilyMember(eventId, trimmedEmail, {
+        displayName: displayName.trim() || undefined,
+        boyName,
+        appUrl,
+      });
       setEmail('');
       setDisplayName('');
-      showToast('Invited', 'success');
       onChanged();
-    } catch {
-      showToast('Could not invite — check the email and try again.', 'error');
+      reportDelivery(result.delivery, result.member.invited_email ?? trimmedEmail, result.message);
+    } catch (error) {
+      showToast(
+        error instanceof Error && error.message.includes('email address')
+          ? error.message
+          : 'Could not invite — check the email and try again.',
+        'error',
+      );
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function handleResend(member: EventMemberRow) {
+    setBusyId(member.id);
+    try {
+      const { delivery, message } = await resendFamilyInvite(member, { boyName, appUrl });
+      reportDelivery(delivery, member.invited_email ?? '', message);
+    } catch {
+      showToast('Could not send that invite again.', 'error');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleCopy(message: InviteMessage) {
+    try {
+      await navigator.clipboard.writeText(message.text);
+      showToast('Invite copied — paste it into WhatsApp or a text', 'success');
+    } catch {
+      showToast('Could not copy. Select the text below instead.', 'error');
     }
   }
 
@@ -70,7 +136,11 @@ export function FamilyAccessSection({ members, onChanged }: FamilyAccessSectionP
 
   return (
     <Card>
-      <h2 className="mb-3 text-base font-semibold text-text-primary">Family access</h2>
+      <h2 className="mb-1 text-base font-semibold text-text-primary">Family access</h2>
+      <p className="mb-4 max-w-prose text-xs text-text-muted">
+        Anyone you add here can sign in and use the whole planner. They get in by signing up with the same email
+        address you invite — the address has to match.
+      </p>
 
       {members.length === 0 ? (
         <EmptyState compact icon={UserPlus} title="No one else has access yet" />
@@ -84,10 +154,23 @@ export function FamilyAccessSection({ members, onChanged }: FamilyAccessSectionP
                     {member.user_id ? member.display_name || 'Family member' : member.invited_email}
                   </p>
                   <Badge variant={member.user_id ? 'success' : 'warning'}>
-                    {member.user_id ? 'Joined' : 'Pending'}
+                    {member.user_id ? 'Joined' : 'Waiting to sign up'}
                   </Badge>
                 </div>
+                {!member.user_id && member.invited_email && (
+                  <p className="mt-0.5 text-xs text-text-muted">They need to sign up with this exact address.</p>
+                )}
               </div>
+              {!member.user_id && member.invited_email && (
+                <IconButton
+                  label={`Send the invite to ${member.invited_email} again`}
+                  size="sm"
+                  disabled={busyId !== null}
+                  onClick={() => void handleResend(member)}
+                >
+                  <Send size={14} aria-hidden="true" />
+                </IconButton>
+              )}
               <IconButton
                 label={`Remove ${member.display_name || member.invited_email || 'family member'}`}
                 size="sm"
@@ -99,6 +182,21 @@ export function FamilyAccessSection({ members, onChanged }: FamilyAccessSectionP
             </li>
           ))}
         </ul>
+      )}
+
+      {pendingMessage && (
+        <div className="mb-4 rounded-lg border border-separator-soft bg-canvas-raised p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-text-secondary">Send this to {pendingMessage.email}</p>
+            <Button type="button" size="sm" variant="secondary" onClick={() => void handleCopy(pendingMessage.message)}>
+              <Copy size={14} aria-hidden="true" />
+              Copy
+            </Button>
+          </div>
+          <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words text-xs text-text-secondary">
+            {pendingMessage.message.text}
+          </pre>
+        </div>
       )}
 
       <form onSubmit={handleInvite} className="flex flex-col gap-3 border-t border-separator pt-4">

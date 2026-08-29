@@ -8,17 +8,16 @@ declare const Deno: {
 
 import { resendAdapter } from './_shared/resendAdapter.ts';
 import type { SendEmailInput } from './_shared/emailProvider.ts';
+import { primeSecrets } from './_shared/secrets.ts';
 
 /**
- * `send-email` — the one edge function Stage 5 adds. `SendSheet` calls this (via
- * `supabase.functions.invoke('send-email', { body })`, the AUTHENTICATED client — this function
- * itself does not touch the database, so it needs no service-role key or RLS bypass) when a
- * family member chooses to send an invitation/reminder by email.
+ * `send-email` — called when a family member sends an invitation, a family invite or a supplier
+ * message by email. Uses the AUTHENTICATED client; it does not touch the database itself.
  *
- * NOT DEPLOYED by this stage — the orchestrator deploys edge functions; this is code only. Until
- * it is deployed, and until a `RESEND_API_KEY` secret is set on the deployed function, every call
- * returns the `not_configured` response below rather than failing outright — `SendSheet` renders
- * that as a clear, expected "email isn't set up yet" state rather than a generic error.
+ * Until a `RESEND_API_KEY` is set — either as a deployment secret or through Settings, which
+ * stores it in Supabase Vault — every call returns the `not_configured` response below rather
+ * than failing outright, so callers can render a clear "email isn't set up yet" state and offer
+ * the message for sending by hand.
  *
  * AUTHENTICATED-ONLY, deliberately, even though Supabase's default `verify_jwt` gate does not by
  * itself guarantee that: the project's ANON key is public (it ships in the built JS bundle), so a
@@ -90,6 +89,10 @@ Deno.serve(async (req: Request) => {
   if (!requireAuthenticatedRole(req)) {
     return json({ ok: false, reason: 'unauthorized', message: 'Sign in to send email.' }, 401);
   }
+
+  // The Resend key may have been set in Settings rather than as a deployment secret, and
+  // `isConfigured()` below is synchronous, so it has to be resolved first.
+  await primeSecrets(['RESEND_API_KEY']);
 
   const provider = resendAdapter;
 

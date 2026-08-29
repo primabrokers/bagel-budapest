@@ -9,6 +9,7 @@ import { DateVenueSection } from '../components/settings/DateVenueSection';
 import { StyleSection } from '../components/settings/StyleSection';
 import { FunctionsEditor } from '../components/settings/FunctionsEditor';
 import { FamilyAccessSection } from '../components/settings/FamilyAccessSection';
+import { ApiKeysSection } from '../components/settings/ApiKeysSection';
 import { NotesSection } from '../components/settings/NotesSection';
 
 export function SettingsPage() {
@@ -36,7 +37,8 @@ export function SettingsPage() {
           <DateVenueSection event={event} onSaved={reload} />
           <StyleSection event={event} onSaved={reload} />
           <FunctionsEditor functions={functions ?? []} onChanged={reloadFunctions} />
-          <FamilyAccessSection members={members ?? []} onChanged={reloadMembers} />
+          <FamilyAccessSection members={members ?? []} boyName={event.boy_name} onChanged={reloadMembers} />
+          <ApiKeysSection />
           <NotesSection event={event} onSaved={reload} />
         </div>
       )}

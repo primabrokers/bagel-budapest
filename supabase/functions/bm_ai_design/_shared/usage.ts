@@ -1,4 +1,4 @@
-// Deno Edge Function code — see the note in `anthropicAdapter.ts` for why `Deno` is declared here.
+// Deno Edge Function code — see the note in `index.ts` for why `Deno` is declared here.
 declare const Deno: {
   env: { get(key: string): string | undefined };
 };

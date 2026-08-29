@@ -1,12 +1,5 @@
-// Deno Edge Function code — not a browser/Node module. `Deno` is a real global at runtime; this
-// ambient declaration exists only so the repo-wide `eslint .` sweep (which lints every .ts file,
-// this directory included, under `globals.browser` — see barmitzvah-planner/eslint.config.js)
-// doesn't flag it as undefined. Kept intentionally minimal: only the members this file uses.
-declare const Deno: {
-  env: { get(key: string): string | undefined };
-};
-
 import type { EmailProvider, SendEmailInput } from './emailProvider.ts';
+import { secret } from './secrets.ts';
 
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
@@ -19,7 +12,7 @@ const RESEND_API_URL = 'https://api.resend.com/emails';
 const FROM_ADDRESS = 'Bar Mitzvah Planner <onboarding@resend.dev>';
 
 function apiKey(): string | undefined {
-  return Deno.env.get('RESEND_API_KEY');
+  return secret('RESEND_API_KEY');
 }
 
 /** The real `EmailProvider` implementation, against the Resend API. `isConfigured()` is what lets

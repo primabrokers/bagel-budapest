@@ -6,6 +6,7 @@ declare const Deno: {
 
 import Anthropic from 'npm:@anthropic-ai/sdk@0.70.1';
 import { checkUsage, recordUsage } from './_shared/usage.ts';
+import { primeSecrets, secret } from './_shared/secrets.ts';
 
 /**
  * `bm_ai_vendor_research` — finds candidate suppliers for a category near the venue.
@@ -134,7 +135,9 @@ Deno.serve(async (req: Request) => {
     return json({ ok: false, reason: 'invalid_request', message: '"eventId" and "category" are required.' }, 400);
   }
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  // Environment first, then the Vault entry a family member set in Settings.
+  await primeSecrets(['ANTHROPIC_API_KEY']);
+  const apiKey = secret('ANTHROPIC_API_KEY');
   if (!apiKey) {
     return json({ ok: false, reason: 'not_configured', message: 'Vendor research is not set up yet (no Anthropic API key).' });
   }
