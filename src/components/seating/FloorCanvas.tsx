@@ -16,8 +16,14 @@ import { dragNewPosition, screenToLocal, type MatrixLike } from '../../lib/seati
 import type { GuestIndexEntry } from '../../lib/seating/warnings';
 import type { FloorObjectKind, FloorObjectWithAssignments } from '../../data/seating/types';
 
-/** The room's fixed coordinate system, in centimetres — roughly to scale for a real venue floor
- *  (see the build plan's §3.2), not an arbitrary 0–100 grid. */
+/**
+ * The room a plan falls back to when nobody has measured the real one — 20m x 15m in centimetres.
+ *
+ * These were the room until migration 12: every plan was drawn at this size whatever the venue
+ * actually was. They are now only a DEFAULT, used when `bm_seating_plans.room_width_cm` /
+ * `room_length_cm` are null, so plans made before the room could be measured keep rendering
+ * exactly as they did.
+ */
 export const ROOM_WIDTH = 2000;
 export const ROOM_HEIGHT = 1500;
 
@@ -49,6 +55,9 @@ interface FloorCanvasProps {
   /** Fired once on `pointerup` at the end of a real drag (not a tap) — the caller persists it. */
   onMoveObject: (objectId: string, x: number, y: number) => void;
   onAddObject: (kind: FloorObjectKind) => void;
+  /** The real hall in cm. Omitted falls back to `ROOM_WIDTH` / `ROOM_HEIGHT`. */
+  roomWidth?: number;
+  roomLength?: number;
   className?: string;
 }
 
@@ -68,6 +77,8 @@ export function FloorCanvas({
   onOpenTable,
   onMoveObject,
   onAddObject,
+  roomWidth = ROOM_WIDTH,
+  roomLength = ROOM_HEIGHT,
   className,
 }: FloorCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -170,7 +181,7 @@ export function FloorCanvas({
     <div className={cn('relative overflow-hidden rounded-lg border border-separator bg-canvas', className)}>
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${ROOM_WIDTH} ${ROOM_HEIGHT}`}
+        viewBox={`0 0 ${roomWidth} ${roomLength}`}
         className="block h-[60vh] max-h-[640px] min-h-[320px] w-full touch-none"
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -179,8 +190,8 @@ export function FloorCanvas({
         <rect
           x={0}
           y={0}
-          width={ROOM_WIDTH}
-          height={ROOM_HEIGHT}
+          width={roomWidth}
+          height={roomLength}
           className="fill-canvas"
           onPointerDown={handleBackgroundPointerDown}
         />
@@ -255,7 +266,32 @@ function FloorObjectShape({ object, x, y, guestIndex, onPointerDown }: FloorObje
       className={object.locked ? 'cursor-default' : 'cursor-grab'}
       data-floor-object-id={object.id}
     >
-      {geometry.shape === 'circle' ? (
+      {object.kind === 'mechitza' ? (
+        // A partition reads as a barrier, not furniture: a solid line with hatching across it,
+        // so at a glance it is obvious which tables are on which side of it.
+        <>
+          <defs>
+            <pattern
+              id={`mechitza-hatch-${object.id}`}
+              width={16}
+              height={16}
+              patternUnits="userSpaceOnUse"
+              patternTransform="rotate(45)"
+            >
+              <line x1={0} y1={0} x2={0} y2={16} className="stroke-plum-700" strokeWidth={6} />
+            </pattern>
+          </defs>
+          <rect
+            x={-object.width / 2}
+            y={-object.height / 2}
+            width={object.width}
+            height={object.height}
+            fill={`url(#mechitza-hatch-${object.id})`}
+            className="stroke-plum-800"
+            strokeWidth={2}
+          />
+        </>
+      ) : geometry.shape === 'circle' ? (
         <circle
           cx={geometry.cx}
           cy={geometry.cy}

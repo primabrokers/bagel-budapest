@@ -18,6 +18,9 @@ export type FloorObjectKind =
   | 'bar'
   | 'buffet'
   | 'entrance'
+  /** A partition dividing the room for separate seating. Not seatable; the room planner treats it
+   *  as a divider tables may not straddle, and `autoSeat` reads which side each table is on. */
+  | 'mechitza'
   | 'custom';
 
 export type PreferenceRule = 'must_together' | 'prefer_together' | 'keep_apart';
@@ -25,6 +28,13 @@ export type PreferenceRule = 'must_together' | 'prefer_together' | 'keep_apart';
 export interface SeatingPlanRow {
   id: string;
   event_id: string;
+  /** The real hall in centimetres (migration 12). Null until someone measures it, in which case
+   *  `FloorCanvas` falls back to its 20m x 15m default. */
+  room_width_cm: number | null;
+  room_length_cm: number | null;
+  /** Seat men and women either side of the mechitza. A stored choice, never inferred from the
+   *  presence of a partition — see `lib/seating/autoSeat.ts`. */
+  separate_seating: boolean;
   /** Null — a whole-event plan not tied to any one function (e.g. one layout reused for both
    *  the Kiddush and the party). Set — a plan scoped to that one `bm_functions` row. */
   function_id: string | null;

@@ -17,6 +17,12 @@ import type {
 export interface SeatingPlanInput {
   name: string;
   function_id?: string | null;
+  /** The real hall, in centimetres (migration 12). Null means "not measured yet" and the canvas
+   *  falls back to its old fixed 20m x 15m, so plans made before this existed still render. */
+  room_width_cm?: number | null;
+  room_length_cm?: number | null;
+  /** Seat men and women either side of the mechitza. A stored family choice, never inferred. */
+  separate_seating?: boolean;
 }
 
 export async function createSeatingPlan(eventId: string, input: SeatingPlanInput): Promise<SeatingPlanRow> {
@@ -97,6 +103,82 @@ export async function createFloorObject(eventId: string, planId: string, input: 
     .single();
   if (error) throw error;
   return data as FloorObjectRow;
+}
+
+/**
+ * Replaces a plan's auto-generated furniture in one go — what "Auto-plan tables" saves.
+ *
+ * Deletes only the objects the planner is entitled to replace: anything LOCKED is left alone, and
+ * so is anything the planner does not generate (a stage or bar someone positioned by hand stays
+ * put unless it was locked... which is why the caller passes exactly the ids it means to clear).
+ * Being explicit about the delete list, rather than wiping the plan, is what stops an auto-plan
+ * from quietly destroying an evening of manual arrangement.
+ */
+export async function replaceFloorObjects(
+  eventId: string,
+  planId: string,
+  removeIds: string[],
+  create: FloorObjectInput[],
+): Promise<FloorObjectRow[]> {
+  if (removeIds.length > 0) {
+    const { error } = await supabase.from('bm_floor_objects').delete().in('id', removeIds);
+    if (error) throw error;
+  }
+
+  if (create.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('bm_floor_objects')
+    .insert(create.map((input) => ({ event_id: eventId, plan_id: planId, ...input })))
+    .select('*');
+  if (error) throw error;
+  return (data ?? []) as FloorObjectRow[];
+}
+
+/**
+ * Writes a whole computed seating in one go — what "Auto-seat" saves.
+ *
+ * Unlocked assignments for this plan are cleared first, then the proposal is inserted. Locked
+ * assignments are never touched: `autoSeat` already carries them through unchanged, so deleting
+ * and re-inserting them would churn rows for no reason and lose their `locked` flag.
+ */
+export async function replaceSeatAssignments(
+  eventId: string,
+  planId: string,
+  assignments: { guestId: string; objectId: string }[],
+): Promise<void> {
+  const { data: locked, error: lockedError } = await supabase
+    .from('bm_seat_assignments')
+    .select('guest_id')
+    .eq('plan_id', planId)
+    .eq('locked', true);
+  if (lockedError) throw lockedError;
+
+  const lockedGuestIds = new Set((locked ?? []).map((row) => (row as { guest_id: string }).guest_id));
+
+  const { error: deleteError } = await supabase
+    .from('bm_seat_assignments')
+    .delete()
+    .eq('plan_id', planId)
+    .eq('locked', false);
+  if (deleteError) throw deleteError;
+
+  const rows = assignments
+    .filter((a) => !lockedGuestIds.has(a.guestId))
+    .map((a) => ({ event_id: eventId, plan_id: planId, guest_id: a.guestId, object_id: a.objectId }));
+
+  if (rows.length > 0) {
+    const { error } = await supabase.from('bm_seat_assignments').insert(rows);
+    if (error) throw error;
+  }
+
+  await logActivity({
+    eventId,
+    action: 'seating_auto_seated',
+    entityType: 'seating_plan',
+    entityId: planId,
+    summary: `Auto-seated ${rows.length} ${rows.length === 1 ? 'guest' : 'guests'}`,
+  });
 }
 
 /**

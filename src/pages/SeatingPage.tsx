@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Armchair, Download, MoreVertical, Plus, Users } from 'lucide-react';
+import { Armchair, Download, MoreVertical, Plus, Ruler, Users, Wand2 } from 'lucide-react';
 import { PageHeader } from '../components/layout/PageHeader';
 import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
@@ -30,6 +30,9 @@ import { TableDetailSheet } from '../components/seating/TableDetailSheet';
 import { RosterPanel } from '../components/seating/RosterPanel';
 import { WarningsPanel } from '../components/seating/WarningsPanel';
 import { PreferencesSheet } from '../components/seating/PreferencesSheet';
+import { RoomSetupSheet } from '../components/seating/RoomSetupSheet';
+import { autoSeat } from '../lib/seating/autoSeat';
+import { replaceSeatAssignments } from '../data/seating/mutations';
 import { GuestListView } from '../components/seating/GuestListView';
 import { UnseatedView } from '../components/seating/UnseatedView';
 import { downloadCsv } from '../lib/exportCsv';
@@ -59,6 +62,8 @@ export function SeatingPage() {
   const [selectedGuestIds, setSelectedGuestIds] = useState<string[]>([]);
   const [detailObjectId, setDetailObjectId] = useState<string | null>(null);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [roomSetupOpen, setRoomSetupOpen] = useState(false);
+  const [autoSeating, setAutoSeating] = useState(false);
 
   // Once the plan list has loaded, default to the first plan — nothing to pick if there are none.
   useEffect(() => {
@@ -81,6 +86,56 @@ export function SeatingPage() {
   function reloadEverything() {
     reloadPlan();
     reloadPreferences();
+  }
+
+  /** Everyone this plan has to seat — what the room planner sizes the table count against. */
+  const attendingCount = useMemo(() => {
+    if (!plan) return 0;
+    return (households ?? []).reduce(
+      (total, household) => total + household.guests.filter((g) => isGuestRelevantToPlan(g, plan)).length,
+      0,
+    );
+  }, [households, plan]);
+
+  async function handleAutoSeat() {
+    if (!plan || autoSeating) return;
+
+    const result = autoSeat({
+      plan,
+      households: households ?? [],
+      objects,
+      preferences: preferences ?? [],
+      existing: assignments,
+      separateSeating: plan.separate_seating,
+    });
+
+    // The numbers go in front of the family BEFORE anything is written — an auto-seat that
+    // silently rearranged an evening's work would be unforgivable, and the count of guests it
+    // could not place is the thing they most need to know.
+    const ok = await confirmDialog('Seat everyone automatically?', {
+      body:
+        `This seats ${result.assignments.length} ${result.assignments.length === 1 ? 'guest' : 'guests'} and replaces the current arrangement. Locked seats stay where they are.` +
+        (result.unseated.length > 0 ? ` ${result.unseated.length} could not be seated.` : '') +
+        (result.warnings.length > 0 ? `\n\n${result.warnings.join('\n')}` : ''),
+      confirmLabel: 'Auto-seat',
+    });
+    if (!ok) return;
+
+    setAutoSeating(true);
+    try {
+      await replaceSeatAssignments(eventId, plan.id, result.assignments);
+      showToast(
+        result.unseated.length > 0
+          ? `Seated ${result.assignments.length}; ${result.unseated.length} still need a seat`
+          : `Seated ${result.assignments.length} guests`,
+        result.unseated.length > 0 ? 'info' : 'success',
+      );
+      reloadPlan();
+    } catch {
+      showToast('Could not save the seating — please try again.', 'error');
+    } finally {
+      setAutoSeating(false);
+    }
   }
 
   function toggleGuest(guestId: string) {
@@ -299,6 +354,20 @@ export function SeatingPage() {
                   </option>
                 ))}
               </Select>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setRoomSetupOpen(true)}>
+                <Ruler size={14} aria-hidden="true" />
+                Room
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleAutoSeat()}
+                disabled={autoSeating || objects.length === 0}
+              >
+                <Wand2 size={14} aria-hidden="true" />
+                {autoSeating ? 'Seating…' : 'Auto-seat'}
+              </Button>
               <Button type="button" variant="secondary" size="sm" onClick={() => setPreferencesOpen(true)}>
                 <Users size={14} aria-hidden="true" />
                 Preferences
@@ -374,6 +443,8 @@ export function SeatingPage() {
                   onOpenTable={(objectId) => setDetailObjectId(objectId)}
                   onMoveObject={(objectId, x, y) => void handleMoveObject(objectId, x, y)}
                   onAddObject={(kind) => void handleAddObject(kind)}
+                  roomWidth={plan.room_width_cm ?? undefined}
+                  roomLength={plan.room_length_cm ?? undefined}
                 />
                 <Card>
                   <h2 className="mb-2 text-sm font-semibold text-text-primary">Warnings</h2>
@@ -442,6 +513,17 @@ export function SeatingPage() {
       />
 
       {plan && (
+        <>
+        <RoomSetupSheet
+          open={roomSetupOpen}
+          onClose={() => setRoomSetupOpen(false)}
+          eventId={eventId}
+          plan={plan}
+          objects={objects}
+          guestCount={attendingCount}
+          onApplied={reloadPlan}
+        />
+
         <PreferencesSheet
           open={preferencesOpen}
           onClose={() => setPreferencesOpen(false)}
@@ -451,6 +533,7 @@ export function SeatingPage() {
           guestIndex={guestIndex}
           onChanged={reloadEverything}
         />
+        </>
       )}
     </div>
   );

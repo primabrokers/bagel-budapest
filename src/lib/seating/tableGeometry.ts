@@ -63,6 +63,24 @@ export interface SeatSlot {
 /** How far a seat sits outside the table's own edge, in the same cm units as width/height. */
 const SEAT_OFFSET = 26;
 
+export interface Footprint {
+  width: number;
+  height: number;
+}
+
+/**
+ * The space a table really occupies: its own top surface PLUS the ring of seated guests around it,
+ * `SEAT_OFFSET` on every side. A 150cm round table needs 202cm of floor, not 150 — planning a room
+ * on the bare table size is how you end up with a layout where nobody can pull a chair out.
+ *
+ * Lives here rather than in `roomLayout.ts` so it shares the one definition of `SEAT_OFFSET` with
+ * `seatSlots`, which is what actually draws those guests. If the two drifted apart, the planner
+ * would promise a fit the canvas then contradicts.
+ */
+export function tableFootprint(width: number, height: number): Footprint {
+  return { width: width + SEAT_OFFSET * 2, height: height + SEAT_OFFSET * 2 };
+}
+
 /**
  * Seat positions for one object, in its own local frame (see the module comment). Non-seatable
  * kinds, or a capacity of zero/null/undefined, return an empty array — `FloorCanvas` and
@@ -184,6 +202,7 @@ const KIND_LABELS: Record<FloorObjectKind, string> = {
   bar: 'Bar',
   buffet: 'Buffet',
   entrance: 'Entrance',
+  mechitza: 'Mechitza',
   custom: 'Object',
 };
 
@@ -207,6 +226,7 @@ export const FLOOR_OBJECT_KINDS: readonly FloorObjectKind[] = [
   'bar',
   'buffet',
   'entrance',
+  'mechitza',
   'custom',
 ];
 
@@ -249,6 +269,10 @@ export function defaultObjectSize(kind: FloorObjectKind): { width: number; heigh
       return { width: 250, height: 80, capacity: null };
     case 'entrance':
       return { width: 100, height: 40, capacity: null };
+    case 'mechitza':
+      // A partition, not a wall: 6m of run is a sensible starting length a family can drag to fit,
+      // and 20cm thick so it is visible and grabbable on a phone-sized canvas.
+      return { width: 20, height: 600, capacity: null };
     case 'custom':
     default:
       return { width: 100, height: 100, capacity: null };
