@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Handshake, LayoutGrid, List, Plus } from 'lucide-react';
+import { Handshake, LayoutGrid, List, Plus, Search } from 'lucide-react';
 import { PageHeader } from '../components/layout/PageHeader';
 import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Field';
@@ -12,6 +12,7 @@ import { toggleVendorFavourite } from '../data/vendors/mutations';
 import { VendorCard } from '../components/vendors/VendorCard';
 import { VendorSheet } from '../components/vendors/VendorSheet';
 import { VendorContactSheet } from '../components/vendors/VendorContactSheet';
+import { VendorResearchSheet } from '../components/vendors/VendorResearchSheet';
 import { useEvent } from '../data/event/hooks';
 import { useEventContext } from '../data/event/context';
 import { VENDOR_STATUSES, VENDOR_STATUS_LABELS } from '../components/vendors/statusMeta';
@@ -33,6 +34,7 @@ export function VendorsPage() {
   const [sheetMode, setSheetMode] = useState<'closed' | 'add' | 'edit'>('closed');
   const [favouriteBusyId, setFavouriteBusyId] = useState<string | null>(null);
   const [contactVendorId, setContactVendorId] = useState<string | null>(null);
+  const [researchOpen, setResearchOpen] = useState(false);
   const { eventId } = useEventContext();
   const { data: event } = useEvent();
 
@@ -82,10 +84,16 @@ export function VendorsPage() {
         title="Vendors"
         subtitle="Every supplier for the day, from first enquiry to final invoice."
         actions={
-          <Button type="button" onClick={openAdd}>
-            <Plus size={15} aria-hidden="true" />
-            Add vendor
-          </Button>
+          <>
+            <Button type="button" variant="secondary" onClick={() => setResearchOpen(true)}>
+              <Search size={15} aria-hidden="true" />
+              Find suppliers
+            </Button>
+            <Button type="button" onClick={openAdd}>
+              <Plus size={15} aria-hidden="true" />
+              Add vendor
+            </Button>
+          </>
         }
       />
 
@@ -211,6 +219,14 @@ export function VendorsPage() {
           closeSheet();
           setContactVendorId(vendorId);
         }}
+      />
+
+      <VendorResearchSheet
+        open={researchOpen}
+        onClose={() => setResearchOpen(false)}
+        eventId={eventId}
+        defaultArea={event?.venue_address || event?.venue_name || ''}
+        onPromoted={reload}
       />
 
       {contactVendor && (
