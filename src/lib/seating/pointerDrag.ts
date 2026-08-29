@@ -71,8 +71,9 @@ export function screenToLocal(ctm: MatrixLike, screenX: number, screenY: number)
   return applyMatrix(invertMatrix(ctm), { x: screenX, y: screenY });
 }
 
-/** The reverse of `screenToLocal` — a local point's position on screen. Used for placing a
- *  desktop drag-ghost under the pointer in the same coordinate system a drag started in. */
+/** The reverse of `screenToLocal` — a local point's position on screen. The inverse half of the
+ *  pair, kept so a round trip can be asserted; `FloorCanvas` renders its drag preview from React
+ *  state and has never needed it. It does not describe a feature that exists. */
 export function localToScreen(ctm: MatrixLike, x: number, y: number): Point {
   return applyMatrix(ctm, { x, y });
 }

@@ -20,8 +20,9 @@ import type { FloorObjectRow, SeatingPlanRow } from '../../data/seating/types';
  * rather than leaking either unit into the other half of the app.
  *
  * "Auto-plan" never writes silently. It runs `planRoomLayout` on every change and shows what it
- * would do — how many tables, seating how many, and who would be left standing — so the family
- * decides from the numbers rather than discovering them after the fact.
+ * would do — how many tables, seating how many, how they divide either side of a mechitza, and
+ * who would be left standing — so the family decides from the numbers rather than discovering
+ * them after the fact.
  */
 
 interface RoomSetupSheetProps {
@@ -30,7 +31,7 @@ interface RoomSetupSheetProps {
   eventId: string;
   plan: SeatingPlanRow;
   objects: FloorObjectRow[];
-  /** Attending guests this plan has to seat. */
+  /** Attending guests this plan has to seat — the default head count, not a fixed one. */
   guestCount: number;
   onApplied: () => void;
 }
@@ -50,13 +51,32 @@ function cmToMetres(cm: number | null | undefined): string {
   return String(Math.round(cm) / 100);
 }
 
+/** A plain count, not a measurement — parsed through the same helper so "8 " or "8,0" behaves,
+ *  then rounded, since half a seat and half a guest are not things. */
+function countOf(raw: string): number | null {
+  const parsed = parseMoneyOrNull(raw);
+  if (parsed === null || parsed <= 0) return null;
+  return Math.round(parsed);
+}
+
+/** A mechitza already on the canvas tells you which way it runs and where it stands, so reopening
+ *  this sheet shows the split the family actually has rather than resetting it to the middle. */
+function readExistingMechitza(objects: FloorObjectRow[]): { axis: MechitzaAxis; position: number } | null {
+  const existing = objects.find((o) => o.kind === 'mechitza');
+  if (!existing) return null;
+  const axis: MechitzaAxis = existing.height >= existing.width ? 'vertical' : 'horizontal';
+  return { axis, position: axis === 'vertical' ? existing.x : existing.y };
+}
+
 export function RoomSetupSheet({ open, onClose, eventId, plan, objects, guestCount, onApplied }: RoomSetupSheetProps) {
   const [widthM, setWidthM] = useState('');
   const [lengthM, setLengthM] = useState('');
+  const [headCount, setHeadCount] = useState('');
   const [tableKind, setTableKind] = useState<TableKind>('table_round');
   const [seatsPerTable, setSeatsPerTable] = useState('');
   const [wantsMechitza, setWantsMechitza] = useState(false);
   const [mechitzaAxis, setMechitzaAxis] = useState<MechitzaAxis>('vertical');
+  const [mechitzaPositionM, setMechitzaPositionM] = useState('');
   const [separateSeating, setSeparateSeating] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -64,16 +84,21 @@ export function RoomSetupSheet({ open, onClose, eventId, plan, objects, guestCou
     if (!open) return;
     setWidthM(cmToMetres(plan.room_width_cm) || String(ROOM_WIDTH / 100));
     setLengthM(cmToMetres(plan.room_length_cm) || String(ROOM_HEIGHT / 100));
+    // Blank rather than "0" when nobody is on the guest list yet — a zero would plan zero tables
+    // and disable the whole sheet, which is exactly how this looked broken.
+    setHeadCount(guestCount > 0 ? String(guestCount) : '');
     setSeparateSeating(plan.separate_seating ?? false);
-    setWantsMechitza(objects.some((o) => o.kind === 'mechitza'));
-  }, [open, plan, objects]);
+    const existing = readExistingMechitza(objects);
+    setWantsMechitza(existing != null);
+    setMechitzaAxis(existing?.axis ?? 'vertical');
+    setMechitzaPositionM(existing ? cmToMetres(existing.position) : '');
+  }, [open, plan, objects, guestCount]);
 
   const roomWidth = metresToCm(widthM);
   const roomLength = metresToCm(lengthM);
-  // A plain count, not a measurement — parsed through the same helper so "8 " or "8,0" behaves,
-  // then rounded, since half a seat is not a thing.
-  const parsedSeats = parseMoneyOrNull(seatsPerTable);
-  const seatsPerTableValue = parsedSeats != null && parsedSeats > 0 ? Math.round(parsedSeats) : null;
+  const seatsPerTableValue = countOf(seatsPerTable);
+  const headCountValue = countOf(headCount) ?? 0;
+  const mechitzaPosition = metresToCm(mechitzaPositionM);
 
   /*
     Anything NOT a table is a keep-out zone the tables have to work around — the dance floor, the
@@ -90,28 +115,52 @@ export function RoomSetupSheet({ open, onClose, eventId, plan, objects, guestCou
     return planRoomLayout({
       roomWidth,
       roomLength,
-      guestCount,
+      guestCount: headCountValue,
       tableKind,
       seatsPerTable: seatsPerTableValue ?? undefined,
-      mechitza: wantsMechitza ? { axis: mechitzaAxis } : null,
+      mechitza: wantsMechitza ? { axis: mechitzaAxis, position: mechitzaPosition ?? undefined } : null,
       reserved,
     });
-  }, [roomWidth, roomLength, guestCount, tableKind, seatsPerTableValue, wantsMechitza, mechitzaAxis, reserved]);
+  }, [roomWidth, roomLength, headCountValue, tableKind, seatsPerTableValue, wantsMechitza, mechitzaAxis, mechitzaPosition, reserved]);
+
+  /** How the tables divide either side of the partition — the number the family actually argues
+   *  about, and the reason `PlannedTable.side` is computed at all. */
+  const split = useMemo(() => {
+    if (!preview?.mechitza) return null;
+    return {
+      a: preview.tables.filter((t) => t.side === 'a').length,
+      b: preview.tables.filter((t) => t.side === 'b').length,
+    };
+  }, [preview]);
+
+  /** Nothing to lay out at all — no tables AND no partition. Anything less than that is a real
+   *  layout worth applying, including a mechitza on its own before the guest list exists. */
+  const nothingToApply = !preview || (preview.tables.length === 0 && !preview.mechitza);
 
   async function handleApply() {
-    if (!roomWidth || !roomLength || !preview || saving) return;
+    if (!roomWidth || !roomLength || !preview || nothingToApply || saving) return;
 
     // Only unlocked tables and the old mechitza are replaced. A locked table is somebody's
     // deliberate decision — the top table by the dance floor — and auto-planning must not undo it.
     const replaceable = objects.filter((o) => !o.locked && (isSeatableKind(o.kind) || o.kind === 'mechitza'));
-    const lockedCount = objects.filter((o) => o.locked && isSeatableKind(o.kind)).length;
+    const lockedTables = objects.filter((o) => o.locked && isSeatableKind(o.kind));
+    const lockedCount = lockedTables.length;
+
+    // Number the new tables ABOVE whatever the locked ones already use, so a locked "Table 1" and
+    // a freshly planned "Table 1" cannot end up in the same room.
+    const highestLocked = lockedTables.reduce((max, o) => Math.max(max, o.table_number ?? 0), 0);
+
+    const tableSummary =
+      preview.tables.length > 0
+        ? `This lays out ${preview.tables.length} ${preview.tables.length === 1 ? 'table' : 'tables'} and removes`
+        : 'This puts the mechitza in place and removes';
 
     const ok = await confirmDialog('Replace the tables in this plan?', {
       body:
-        `This lays out ${preview.tables.length} ${preview.tables.length === 1 ? 'table' : 'tables'} and removes ${replaceable.length} existing ${replaceable.length === 1 ? 'item' : 'items'}.` +
+        `${tableSummary} ${replaceable.length} existing ${replaceable.length === 1 ? 'item' : 'items'}.` +
         (lockedCount > 0 ? ` ${lockedCount} locked ${lockedCount === 1 ? 'table stays' : 'tables stay'} where ${lockedCount === 1 ? 'it is' : 'they are'}.` : '') +
         ' Seat assignments on the removed tables are cleared.',
-      confirmLabel: 'Replace tables',
+      confirmLabel: preview.tables.length > 0 ? 'Replace tables' : 'Place mechitza',
     });
     if (!ok) return;
 
@@ -134,7 +183,7 @@ export function RoomSetupSheet({ open, onClose, eventId, plan, objects, guestCou
             : []),
           ...preview.tables.map((table, index) => ({
             kind: table.kind,
-            table_number: index + 1,
+            table_number: highestLocked + index + 1,
             capacity: table.capacity,
             x: table.x,
             y: table.y,
@@ -144,7 +193,10 @@ export function RoomSetupSheet({ open, onClose, eventId, plan, objects, guestCou
         ],
       );
 
-      showToast(`${preview.tables.length} tables laid out`, 'success');
+      showToast(
+        preview.tables.length > 0 ? `${preview.tables.length} tables laid out` : 'Mechitza placed',
+        'success',
+      );
       onApplied();
       onClose();
     } catch {
@@ -166,8 +218,8 @@ export function RoomSetupSheet({ open, onClose, eventId, plan, objects, guestCou
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="button" onClick={() => void handleApply()} disabled={saving || !preview || preview.tables.length === 0}>
-            {saving ? 'Laying out…' : 'Auto-plan tables'}
+          <Button type="button" onClick={() => void handleApply()} disabled={saving || nothingToApply}>
+            {saving ? 'Laying out…' : preview && preview.tables.length === 0 && preview.mechitza ? 'Place mechitza' : 'Auto-plan tables'}
           </Button>
         </>
       }
@@ -187,6 +239,24 @@ export function RoomSetupSheet({ open, onClose, eventId, plan, objects, guestCou
             Measure the usable floor. A metre of walkway is kept clear at the walls automatically.
           </p>
         </div>
+
+        <Field
+          label="People to seat"
+          htmlFor="room-head-count"
+          hint={
+            guestCount > 0
+              ? 'Defaults to your attending guests — change it to plan for a different number.'
+              : 'Type a number to plan the room before the guest list is finalised.'
+          }
+        >
+          <Input
+            id="room-head-count"
+            inputMode="numeric"
+            value={headCount}
+            onChange={(e) => setHeadCount(e.target.value)}
+            placeholder="120"
+          />
+        </Field>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Table shape" htmlFor="room-table-kind">
@@ -211,12 +281,29 @@ export function RoomSetupSheet({ open, onClose, eventId, plan, objects, guestCou
 
           {wantsMechitza && (
             <>
-              <Field label="Runs" htmlFor="room-mechitza-axis">
-                <Select id="room-mechitza-axis" value={mechitzaAxis} onChange={(e) => setMechitzaAxis(e.target.value as MechitzaAxis)}>
-                  <option value="vertical">Top to bottom — divides left and right</option>
-                  <option value="horizontal">Side to side — divides front and back</option>
-                </Select>
-              </Field>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Runs" htmlFor="room-mechitza-axis">
+                  <Select id="room-mechitza-axis" value={mechitzaAxis} onChange={(e) => setMechitzaAxis(e.target.value as MechitzaAxis)}>
+                    <option value="vertical">Top to bottom — divides left and right</option>
+                    <option value="horizontal">Side to side — divides front and back</option>
+                  </Select>
+                </Field>
+                <Field
+                  label={mechitzaAxis === 'vertical' ? 'Position from the left (metres)' : 'Position from the front (metres)'}
+                  htmlFor="room-mechitza-position"
+                  hint="Leave blank to split the room down the middle"
+                >
+                  <Input
+                    id="room-mechitza-position"
+                    inputMode="decimal"
+                    value={mechitzaPositionM}
+                    onChange={(e) => setMechitzaPositionM(e.target.value)}
+                    placeholder={cmToMetres(
+                      mechitzaAxis === 'vertical' ? (roomWidth ?? ROOM_WIDTH) / 2 : (roomLength ?? ROOM_HEIGHT) / 2,
+                    )}
+                  />
+                </Field>
+              </div>
 
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -234,9 +321,23 @@ export function RoomSetupSheet({ open, onClose, eventId, plan, objects, guestCou
         {preview && (
           <div className="rounded-lg border border-separator-soft bg-canvas-raised p-3">
             <p className="text-sm font-medium text-text-secondary">What fits</p>
-            <p className="mt-1 text-sm text-text-primary">
-              {preview.tables.length} {preview.tables.length === 1 ? 'table' : 'tables'}, seating {preview.seatedCapacity} — for {guestCount} attending.
-            </p>
+            {headCountValue > 0 ? (
+              <p className="mt-1 text-sm text-text-primary">
+                {preview.tables.length} {preview.tables.length === 1 ? 'table' : 'tables'}, seating {preview.seatedCapacity} — for{' '}
+                {headCountValue} {headCountValue === 1 ? 'person' : 'people'}.
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-text-primary">
+                No tables yet — enter how many people you are seating and they will be laid out here.
+              </p>
+            )}
+            {split && (
+              <p className="mt-1 text-sm text-text-secondary">
+                {mechitzaAxis === 'vertical'
+                  ? `${split.a} ${split.a === 1 ? 'table' : 'tables'} to the left of the mechitza, ${split.b} to the right.`
+                  : `${split.a} ${split.a === 1 ? 'table' : 'tables'} in front of the mechitza, ${split.b} behind.`}
+              </p>
+            )}
             {preview.warnings.map((warning) => (
               <p key={warning} className="mt-2 rounded-md bg-warning-bg px-3 py-2 text-xs text-warning-text">
                 {warning}

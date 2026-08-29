@@ -32,6 +32,7 @@ import { WarningsPanel } from '../components/seating/WarningsPanel';
 import { PreferencesSheet } from '../components/seating/PreferencesSheet';
 import { RoomSetupSheet } from '../components/seating/RoomSetupSheet';
 import { autoSeat } from '../lib/seating/autoSeat';
+import { mechitzaObject, placeNewObject } from '../lib/seating/roomLayout';
 import { replaceSeatAssignments } from '../data/seating/mutations';
 import { GuestListView } from '../components/seating/GuestListView';
 import { UnseatedView } from '../components/seating/UnseatedView';
@@ -87,6 +88,11 @@ export function SeatingPage() {
     reloadPlan();
     reloadPreferences();
   }
+
+  /** The plan's own hall in cm, falling back to the fixed room the canvas used before plans could
+   *  be measured. One pair, read by the canvas, the Add handler and the mechitza controls alike. */
+  const roomWidth = plan?.room_width_cm ?? ROOM_WIDTH;
+  const roomLength = plan?.room_length_cm ?? ROOM_HEIGHT;
 
   /** Everyone this plan has to seat — what the room planner sizes the table count against. */
   const attendingCount = useMemo(() => {
@@ -208,20 +214,28 @@ export function SeatingPage() {
   async function handleAddObject(kind: FloorObjectKind) {
     if (!plan) return;
     const size = defaultObjectSize(kind);
-    const sameKindCount = objects.filter((o) => o.kind === kind).length;
-    const offset = sameKindCount * 40;
     const existingNumbers = objects.map((o) => o.table_number).filter((n): n is number => n != null);
     const nextTableNumber = isSeatableKind(kind) ? (existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1) : null;
+    // A mechitza is not furniture you drop somewhere — it divides the room, so it is built to
+    // span it. Its default size is a fixed 20 x 600cm bar, which in any hall deeper than 6m
+    // partitions only part of the floor and cannot be stretched from anywhere in the app.
+    const placement =
+      kind === 'mechitza'
+        ? mechitzaObject(roomWidth, roomLength, 'vertical')
+        : { ...placeNewObject(roomWidth, roomLength, size.width, size.height, objects.length), width: size.width, height: size.height };
 
     try {
       await createFloorObject(eventId, plan.id, {
         kind,
         capacity: size.capacity,
-        width: size.width,
-        height: size.height,
         table_number: nextTableNumber,
-        x: ROOM_WIDTH / 2 + offset,
-        y: ROOM_HEIGHT / 2 + offset,
+        // Placed in the plan's OWN room and clamped inside it. Using the fixed constants here
+        // dropped new objects outside a smaller measured room, where they were saved but never
+        // drawn.
+        x: placement.x,
+        y: placement.y,
+        width: placement.width,
+        height: placement.height,
       });
       showToast(`Added ${floorObjectKindLabel(kind).toLowerCase()}`, 'success');
       reloadPlan();
@@ -356,7 +370,7 @@ export function SeatingPage() {
               </Select>
               <Button type="button" variant="secondary" size="sm" onClick={() => setRoomSetupOpen(true)}>
                 <Ruler size={14} aria-hidden="true" />
-                Room
+                Room &amp; tables
               </Button>
               <Button
                 type="button"
@@ -435,6 +449,20 @@ export function SeatingPage() {
                 onClearSelection={() => setSelectedGuestIds([])}
               />
               <div className="flex flex-col gap-4">
+                {objects.length === 0 && (
+                  <EmptyState
+                    compact
+                    icon={Ruler}
+                    title="Nothing in the room yet"
+                    hint="Measure the hall and the tables are laid out for you — or add a table, stage or dance floor by hand with Add, below."
+                    action={
+                      <Button type="button" size="sm" onClick={() => setRoomSetupOpen(true)}>
+                        <Ruler size={14} aria-hidden="true" />
+                        Plan the room
+                      </Button>
+                    }
+                  />
+                )}
                 <FloorCanvas
                   objects={objects}
                   guestIndex={guestIndex}
@@ -443,8 +471,8 @@ export function SeatingPage() {
                   onOpenTable={(objectId) => setDetailObjectId(objectId)}
                   onMoveObject={(objectId, x, y) => void handleMoveObject(objectId, x, y)}
                   onAddObject={(kind) => void handleAddObject(kind)}
-                  roomWidth={plan.room_width_cm ?? undefined}
-                  roomLength={plan.room_length_cm ?? undefined}
+                  roomWidth={roomWidth}
+                  roomLength={roomLength}
                 />
                 <Card>
                   <h2 className="mb-2 text-sm font-semibold text-text-primary">Warnings</h2>
@@ -456,7 +484,18 @@ export function SeatingPage() {
 
           {tab === 'table' &&
             (objects.length === 0 ? (
-              <EmptyState compact icon={Armchair} title="No tables yet" hint="Add one from the Room view." />
+              <EmptyState
+                compact
+                icon={Armchair}
+                title="No tables yet"
+                hint="Lay them out from the hall's measurements, or add one by hand from the Room view."
+                action={
+                  <Button type="button" size="sm" onClick={() => setRoomSetupOpen(true)}>
+                    <Ruler size={14} aria-hidden="true" />
+                    Plan the room
+                  </Button>
+                }
+              />
             ) : (
               <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {objects.map((object) => (
@@ -502,6 +541,8 @@ export function SeatingPage() {
         object={detailObject}
         eventId={eventId}
         planId={plan?.id ?? ''}
+        roomWidth={roomWidth}
+        roomLength={roomLength}
         households={households ?? []}
         guestIndex={guestIndex}
         assignmentsByGuest={assignmentsByGuest}

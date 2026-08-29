@@ -4,11 +4,13 @@ import { Sheet } from '../ui/Sheet';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
 import { Badge } from '../ui/Badge';
-import { Field, Input, Textarea } from '../ui/Field';
+import { Field, Input, Select, Textarea } from '../ui/Field';
 import { EmptyState } from '../ui/EmptyState';
 import { showToast } from '../../hooks/useToast';
 import { confirmDialog } from '../../hooks/useConfirm';
 import { assignmentsBySlot, floorObjectLabel, isSeatableKind, seatSlots } from '../../lib/seating/tableGeometry';
+import { mechitzaObject, type MechitzaAxis } from '../../lib/seating/roomLayout';
+import { parseMoneyOrNull } from '../../lib/format';
 import { guestDisplayName, type GuestIndexEntry } from '../../lib/seating/warnings';
 import {
   assignSeat,
@@ -37,6 +39,20 @@ function toForm(object: FloorObjectWithAssignments): DetailFormState {
   };
 }
 
+/** A mechitza's own two settings: which way it runs, and where along the room it stands. Both are
+ *  read back OUT of its geometry rather than stored separately, so a partition dragged across the
+ *  canvas and one typed in here can never disagree about where it is. */
+interface MechitzaFormState {
+  axis: MechitzaAxis;
+  positionM: string;
+}
+
+function toMechitzaForm(object: FloorObjectWithAssignments): MechitzaFormState {
+  const axis: MechitzaAxis = object.height >= object.width ? 'vertical' : 'horizontal';
+  const centreCm = axis === 'vertical' ? object.x : object.y;
+  return { axis, positionM: String(Math.round(centreCm) / 100) };
+}
+
 interface TableDetailSheetProps {
   open: boolean;
   onClose: () => void;
@@ -44,6 +60,9 @@ interface TableDetailSheetProps {
   object: FloorObjectWithAssignments | null;
   eventId: string;
   planId: string;
+  /** The plan's own room in cm — what a mechitza is re-spanned across when it is turned or moved. */
+  roomWidth: number;
+  roomLength: number;
   households: HouseholdWithGuests[];
   guestIndex: Map<string, GuestIndexEntry>;
   /** Every seat assignment on the WHOLE plan, keyed by guest — used to tell whether the active
@@ -81,6 +100,8 @@ export function TableDetailSheet({
   object,
   eventId,
   planId,
+  roomWidth,
+  roomLength,
   households,
   guestIndex,
   assignmentsByGuest,
@@ -91,6 +112,7 @@ export function TableDetailSheet({
   onDeleted,
 }: TableDetailSheetProps) {
   const [form, setForm] = useState<DetailFormState>({ label: '', table_number: '', capacity: '', notes: '' });
+  const [mechitzaForm, setMechitzaForm] = useState<MechitzaFormState>({ axis: 'vertical', positionM: '' });
   const [saving, setSaving] = useState(false);
   const [busySeat, setBusySeat] = useState<number | null>(null);
   const [pickingForSeat, setPickingForSeat] = useState<number | null>(null);
@@ -99,12 +121,14 @@ export function TableDetailSheet({
   useEffect(() => {
     if (!open || !object) return;
     setForm(toForm(object));
+    if (object.kind === 'mechitza') setMechitzaForm(toMechitzaForm(object));
     setPickingForSeat(null);
     setGuestQuery('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, object?.id]);
 
   const seatable = object ? isSeatableKind(object.kind) : false;
+  const isMechitza = object?.kind === 'mechitza';
   const slots = object && seatable ? seatSlots(object.kind, object.capacity, object.width, object.height) : [];
   const bySlot = object ? assignmentsBySlot(object.assignments, slots.length) : new Map<number, SeatAssignmentRow>();
 
@@ -140,6 +164,21 @@ export function TableDetailSheet({
       showToast('Capacity must be a number.', 'error');
       return;
     }
+    // Turning or moving a mechitza rebuilds its rectangle through the same helper the room planner
+    // uses, so it always spans the full room across whichever axis it now runs. A blank position
+    // means the middle.
+    const partition = object.kind === 'mechitza'
+      ? mechitzaObject(
+          roomWidth,
+          roomLength,
+          mechitzaForm.axis,
+          (() => {
+            const metres = parseMoneyOrNull(mechitzaForm.positionM);
+            return metres != null && metres > 0 ? Math.round(metres * 100) : undefined;
+          })(),
+        )
+      : null;
+
     setSaving(true);
     try {
       await updateFloorObject(object.id, {
@@ -147,6 +186,7 @@ export function TableDetailSheet({
         table_number,
         capacity,
         notes: form.notes.trim() || null,
+        ...(partition ? { x: partition.x, y: partition.y, width: partition.width, height: partition.height } : {}),
       });
       showToast('Saved', 'success');
       onChanged();
@@ -371,6 +411,33 @@ export function TableDetailSheet({
                 />
               </Field>
             )}
+            {isMechitza && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Runs" htmlFor="mechitza-axis">
+                  <Select
+                    id="mechitza-axis"
+                    value={mechitzaForm.axis}
+                    onChange={(e) => setMechitzaForm((f) => ({ ...f, axis: e.target.value as MechitzaAxis }))}
+                  >
+                    <option value="vertical">Top to bottom — divides left and right</option>
+                    <option value="horizontal">Side to side — divides front and back</option>
+                  </Select>
+                </Field>
+                <Field
+                  label={mechitzaForm.axis === 'vertical' ? 'Position from the left (metres)' : 'Position from the front (metres)'}
+                  htmlFor="mechitza-position"
+                  hint="Blank splits the room down the middle"
+                >
+                  <Input
+                    id="mechitza-position"
+                    inputMode="decimal"
+                    value={mechitzaForm.positionM}
+                    onChange={(e) => setMechitzaForm((f) => ({ ...f, positionM: e.target.value }))}
+                    placeholder={String(Math.round(mechitzaForm.axis === 'vertical' ? roomWidth : roomLength) / 200)}
+                  />
+                </Field>
+              </div>
+            )}
             <Field label="Notes" htmlFor="object-notes">
               <Textarea id="object-notes" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </Field>
@@ -439,7 +506,16 @@ export function TableDetailSheet({
               </ul>
             </div>
           ) : (
-            <EmptyState compact icon={UserPlus} title="This object doesn't take seats" hint="Only tables can hold seat assignments." />
+            <EmptyState
+              compact
+              icon={UserPlus}
+              title="This object doesn't take seats"
+              hint={
+                isMechitza
+                  ? 'A mechitza divides the room. Auto-seat keeps each table wholly on one side of it.'
+                  : 'Only tables can hold seat assignments.'
+              }
+            />
           )}
         </div>
       )}

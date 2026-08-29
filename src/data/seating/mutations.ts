@@ -28,7 +28,16 @@ export interface SeatingPlanInput {
 export async function createSeatingPlan(eventId: string, input: SeatingPlanInput): Promise<SeatingPlanRow> {
   const { data, error } = await supabase
     .from('bm_seating_plans')
-    .insert({ event_id: eventId, name: input.name, function_id: input.function_id ?? null })
+    .insert({
+      event_id: eventId,
+      name: input.name,
+      function_id: input.function_id ?? null,
+      // Declared on SeatingPlanInput and, until now, silently dropped here — a caller could pass a
+      // measured room at creation and get a plan with no dimensions and no error to explain it.
+      room_width_cm: input.room_width_cm ?? null,
+      room_length_cm: input.room_length_cm ?? null,
+      separate_seating: input.separate_seating ?? false,
+    })
     .select('*')
     .single();
   if (error) throw error;

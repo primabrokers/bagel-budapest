@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planRoomLayout, type LayoutRect, type PlannedTable } from './roomLayout';
+import { mechitzaObject, placeNewObject, planRoomLayout, type LayoutRect, type PlannedTable } from './roomLayout';
 import { tableFootprint } from './tableGeometry';
 
 /**
@@ -102,6 +102,8 @@ describe('planRoomLayout — honesty when the room is too small', () => {
     const result = planRoomLayout({ ...HALL, guestCount: 0 });
     expect(result.tables).toEqual([]);
     expect(result.unplacedGuests).toBe(0);
+    // And does NOT claim the room is too small — nobody asked it for a table.
+    expect(result.warnings).toEqual([]);
   });
 });
 
@@ -189,5 +191,115 @@ describe('planRoomLayout — mechitza', () => {
     const undivided = planRoomLayout({ ...HALL, guestCount: 500 });
     const divided = planRoomLayout({ ...HALL, guestCount: 500, mechitza: { axis: 'vertical' } });
     expect(divided.tables.length).toBeLessThanOrEqual(undivided.tables.length);
+  });
+});
+
+describe('placeNewObject', () => {
+  it('lands in the middle of the room for the first object', () => {
+    expect(placeNewObject(2000, 1500, 150, 150)).toEqual({ x: 1000, y: 750 });
+  });
+
+  it('keeps the whole object inside a SMALL room — the bug that made adding look broken', () => {
+    // An 8m x 6m hall. The old code placed at the hard-coded 1000,750, far outside this room, so
+    // the object was saved and never drawn.
+    const { x, y } = placeNewObject(800, 600, 150, 150);
+    expect(x).toBeGreaterThanOrEqual(75);
+    expect(x).toBeLessThanOrEqual(725);
+    expect(y).toBeGreaterThanOrEqual(75);
+    expect(y).toBeLessThanOrEqual(525);
+  });
+
+  it('never walks a run of additions out of the room', () => {
+    for (let index = 0; index < 40; index++) {
+      const { x, y } = placeNewObject(800, 600, 150, 150, index);
+      expect(x).toBeGreaterThanOrEqual(75);
+      expect(x).toBeLessThanOrEqual(725);
+      expect(y).toBeGreaterThanOrEqual(75);
+      expect(y).toBeLessThanOrEqual(525);
+    }
+  });
+
+  it('steps a whole object clear, so the next addition is not hidden under the last', () => {
+    // The complaint this exists for: add a table, then a dance floor, and the table disappears
+    // beneath it — indistinguishable from a table that was never added.
+    const table = placeNewObject(2000, 1500, 150, 150, 0);
+    const floor = placeNewObject(2000, 1500, 300, 300, 1);
+    const gap = Math.max(Math.abs(floor.x - table.x), Math.abs(floor.y - table.y));
+    expect(gap).toBeGreaterThanOrEqual(150 / 2 + 300 / 2);
+  });
+
+  it('fans successive additions apart rather than stacking them exactly', () => {
+    expect(placeNewObject(2000, 1500, 150, 150, 1)).not.toEqual(placeNewObject(2000, 1500, 150, 150, 0));
+  });
+
+  it('does not throw when the object is larger than the room', () => {
+    const { x, y } = placeNewObject(200, 200, 400, 400, 3);
+    expect(Number.isFinite(x)).toBe(true);
+    expect(Number.isFinite(y)).toBe(true);
+  });
+});
+
+describe('mechitzaObject', () => {
+  it('spans the full depth of the room when it runs top to bottom', () => {
+    const m = mechitzaObject(2000, 1500, 'vertical');
+    expect(m.kind).toBe('mechitza');
+    expect(m.x).toBe(1000);
+    expect(m.height).toBe(1500);
+    // Thin across, so it reads as a partition rather than a wall.
+    expect(m.width).toBeLessThan(50);
+  });
+
+  it('spans the full width of the room when it runs side to side', () => {
+    const m = mechitzaObject(2000, 1500, 'horizontal');
+    expect(m.y).toBe(750);
+    expect(m.width).toBe(2000);
+    expect(m.height).toBeLessThan(50);
+  });
+
+  it('honours an off-centre position — real halls are not split 50/50', () => {
+    expect(mechitzaObject(2000, 1500, 'vertical', 1400).x).toBe(1400);
+    expect(mechitzaObject(2000, 1500, 'horizontal', 400).y).toBe(400);
+  });
+
+  it('clamps a position outside the room rather than putting a partition through a wall', () => {
+    expect(mechitzaObject(2000, 1500, 'vertical', 9999).x).toBeLessThanOrEqual(2000);
+    expect(mechitzaObject(2000, 1500, 'vertical', -500).x).toBeGreaterThanOrEqual(0);
+    expect(mechitzaObject(2000, 1500, 'horizontal', 9999).y).toBeLessThanOrEqual(1500);
+  });
+
+  it('gives planRoomLayout the same partition it packs the sides around', () => {
+    // The line the tables are divided by and the line drawn on the canvas must be one number.
+    const result = planRoomLayout({ ...HALL, guestCount: 160, mechitza: { axis: 'vertical', position: 1400 } });
+    expect(result.mechitza).toEqual(mechitzaObject(HALL.roomWidth, HALL.roomLength, 'vertical', 1400));
+    for (const table of result.tables) {
+      const fp = footprintOf(table);
+      expect(fp.maxX <= 1400 || fp.minX >= 1400).toBe(true);
+    }
+  });
+
+  it('keeps tables on their own side of an out-of-range position, not just the drawn line', () => {
+    // A position past the far wall clamps; the packed sides must clamp with it.
+    const result = planRoomLayout({ ...HALL, guestCount: 160, mechitza: { axis: 'vertical', position: 9999 } });
+    const at = result.mechitza?.x ?? 0;
+    for (const table of result.tables) {
+      const fp = footprintOf(table);
+      expect(fp.maxX <= at || fp.minX >= at).toBe(true);
+    }
+  });
+});
+
+describe('planRoomLayout — planning before there is a guest list', () => {
+  it('plans from a typed head count, which is how a hall is measured months ahead', () => {
+    const result = planRoomLayout({ ...HALL, guestCount: 120 });
+    expect(result.tables.length).toBe(15);
+    expect(result.seatedCapacity).toBe(120);
+  });
+
+  it('still returns the partition when no tables are wanted, so a mechitza can be placed alone', () => {
+    // guestCount 0 means no tables — but the family may still want the mechitza down first.
+    const result = planRoomLayout({ ...HALL, guestCount: 0, mechitza: { axis: 'vertical' } });
+    expect(result.tables).toEqual([]);
+    expect(result.mechitza).not.toBeNull();
+    expect(result.mechitza?.height).toBe(HALL.roomLength);
   });
 });

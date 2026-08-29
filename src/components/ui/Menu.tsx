@@ -38,12 +38,20 @@ interface MenuProps {
   items: MenuItemSpec[];
   /** Which edge the panel hangs from. */
   align?: 'left' | 'right';
+  /**
+   * Which way the panel opens. Defaults to `bottom` (below the trigger).
+   *
+   * `top` exists for a trigger pinned to the BOTTOM of its container — the seating canvas's
+   * "Add" button, for one. Opening downward from there puts the panel past the container's edge,
+   * where an `overflow-hidden` ancestor clips it and the menu simply appears not to work.
+   */
+  side?: 'bottom' | 'top';
   /** Accessible name for the menu itself, e.g. "Guest actions". */
   label: string;
   className?: string;
 }
 
-export function Menu({ trigger, items, align = 'right', label, className }: MenuProps) {
+export function Menu({ trigger, items, align = 'right', side = 'bottom', label, className }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -133,8 +141,9 @@ export function Menu({ trigger, items, align = 'right', label, className }: Menu
           className={cn(
             // Above the base Sheet rung — a menu is frequently opened from a trigger that
             // itself lives inside a sheet. See LAYER in ui/Sheet.tsx.
-            'absolute top-full mt-1 min-w-[200px] overflow-hidden rounded-lg border border-separator bg-surface py-1 shadow-lg',
+            'absolute min-w-[200px] overflow-hidden rounded-lg border border-separator bg-surface py-1 shadow-lg',
             LAYER.raised,
+            side === 'top' ? 'bottom-full mb-1' : 'top-full mt-1',
             align === 'right' ? 'right-0' : 'left-0',
           )}
         >

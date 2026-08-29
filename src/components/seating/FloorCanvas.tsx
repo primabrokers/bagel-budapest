@@ -229,6 +229,13 @@ export function FloorCanvas({
 
         <Menu
           align="right"
+          // Pinned to the bottom of the canvas, so the panel opens UPWARD — downward puts it past
+          // the canvas edge, where the wrapper's overflow-hidden clips it away entirely.
+          side="top"
+          // The toolbar row is pointer-events-none so drags pass through to the canvas beneath.
+          // Without this the panel inherits that and every item is unclickable — the menu opens
+          // and then ignores you, which is exactly how this read as "adding a table does nothing".
+          className="pointer-events-auto"
           label="Add a floor object"
           items={addObjectItems}
           trigger={(triggerProps) => (

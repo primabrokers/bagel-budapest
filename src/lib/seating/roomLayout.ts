@@ -89,6 +89,10 @@ interface Bounds {
   maxY: number;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
 function boundsWidth(b: Bounds): number {
   return b.maxX - b.minX;
 }
@@ -160,6 +164,72 @@ function packRegion(
   return placed;
 }
 
+/**
+ * The partition itself, as a rectangle spanning the whole room across the axis it divides.
+ *
+ * Exported because two callers need the identical geometry and must not drift apart: the room
+ * planner builds one as part of a whole layout, and adding a mechitza by hand from the canvas
+ * builds one on its own. A hand-added partition used to get `defaultObjectSize('mechitza')` — a
+ * fixed 20 x 600cm bar — which in a 15m-deep hall divides less than half the room and cannot be
+ * resized from anywhere in the app. A mechitza that only half crosses the room is not a mechitza.
+ *
+ * `position` is the centre along the divided axis, clamped inside the room so a typed-in value
+ * can never put the partition through a wall. It defaults to the middle.
+ */
+export function mechitzaObject(
+  roomWidth: number,
+  roomLength: number,
+  axis: MechitzaAxis,
+  position?: number,
+): LayoutRect & { kind: 'mechitza' } {
+  const half = MECHITZA_THICKNESS / 2;
+  if (axis === 'vertical') {
+    const at = clamp(position ?? roomWidth / 2, half, Math.max(half, roomWidth - half));
+    return { kind: 'mechitza', x: at, y: roomLength / 2, width: MECHITZA_THICKNESS, height: roomLength };
+  }
+  const at = clamp(position ?? roomLength / 2, half, Math.max(half, roomLength - half));
+  return { kind: 'mechitza', x: roomWidth / 2, y: at, width: roomWidth, height: MECHITZA_THICKNESS };
+}
+
+/** Clear floor left between one hand-added object and the next, so each is separately grabbable. */
+const NEW_OBJECT_GAP = 30;
+
+/**
+ * Where a hand-added object should land: out from the middle of the room, stepped by `index` so a
+ * run of additions fans out instead of stacking, and CLAMPED so the whole object stays inside the
+ * room.
+ *
+ * Both halves are there because of the same complaint — "adding a table does nothing".
+ *
+ * The clamp: new objects used to be placed at the centre of a hard-coded 20m x 15m room, which was
+ * fine while every room was that size. Once a family measures a smaller hall, an unclamped centre
+ * lands outside the viewBox — the row is written to the database and never drawn.
+ *
+ * The step: it is a whole object wide, and `index` counts EVERY object in the plan rather than
+ * every object of this kind, so a table added after a dance floor does not land underneath it. A
+ * new table hidden under the one before it looks exactly like a table that was never added.
+ */
+export function placeNewObject(
+  roomWidth: number,
+  roomLength: number,
+  width: number,
+  height: number,
+  index = 0,
+): { x: number; y: number } {
+  const halfW = width / 2;
+  const halfH = height / 2;
+  const step = Math.max(width, height) + NEW_OBJECT_GAP;
+  // How far the CENTRE may travel before the object would leave the room.
+  const travel = Math.min(Math.max(0, roomWidth - width), Math.max(0, roomLength - height));
+  // Wrap the fan-out rather than letting it march at a wall: past the far corner it starts again
+  // from the middle, which in a room that full is the honest answer anyway.
+  const drift = (Math.max(0, Math.round(index)) * step) % Math.max(step, travel || step);
+  return {
+    x: clamp(roomWidth / 2 + drift, halfW, Math.max(halfW, roomWidth - halfW)),
+    y: clamp(roomLength / 2 + drift, halfH, Math.max(halfH, roomLength - halfH)),
+  };
+}
+
 export function planRoomLayout(input: RoomLayoutInput): RoomLayoutResult {
   const warnings: string[] = [];
   const {
@@ -200,26 +270,30 @@ export function planRoomLayout(input: RoomLayoutInput): RoomLayoutResult {
   const tablesNeeded = Math.ceil(guestCount / seatsPerTable);
 
   let regions: { bounds: Bounds; side: MechitzaSide }[];
-  let mechitzaObject: (LayoutRect & { kind: 'mechitza' }) | null = null;
+  let partition: (LayoutRect & { kind: 'mechitza' }) | null = null;
 
   if (mechitza) {
     const clearance = mechitza.clearance ?? DEFAULT_MECHITZA_CLEARANCE;
     const half = clearance / 2;
 
+    // Build the partition FIRST and take the dividing line from it, so the sides the tables are
+    // packed into and the line drawn on the canvas are the same number by construction. Reading
+    // `mechitza.position` separately let an out-of-range value split the room at one place and
+    // draw the mechitza at another — a table on the wrong side of its own partition.
+    partition = mechitzaObject(roomWidth, roomLength, mechitza.axis, mechitza.position);
+
     if (mechitza.axis === 'vertical') {
-      const at = mechitza.position ?? roomWidth / 2;
+      const at = partition.x;
       regions = [
         { bounds: { ...usable, maxX: Math.min(usable.maxX, at - half) }, side: 'a' },
         { bounds: { ...usable, minX: Math.max(usable.minX, at + half) }, side: 'b' },
       ];
-      mechitzaObject = { kind: 'mechitza', x: at, y: roomLength / 2, width: MECHITZA_THICKNESS, height: roomLength };
     } else {
-      const at = mechitza.position ?? roomLength / 2;
+      const at = partition.y;
       regions = [
         { bounds: { ...usable, maxY: Math.min(usable.maxY, at - half) }, side: 'a' },
         { bounds: { ...usable, minY: Math.max(usable.minY, at + half) }, side: 'b' },
       ];
-      mechitzaObject = { kind: 'mechitza', x: roomWidth / 2, y: at, width: roomWidth, height: MECHITZA_THICKNESS };
     }
 
     for (const region of regions) {
@@ -265,7 +339,10 @@ export function planRoomLayout(input: RoomLayoutInput): RoomLayoutResult {
   const seatedCapacity = tables.length * seatsPerTable;
   const unplacedGuests = Math.max(0, guestCount - seatedCapacity);
 
-  if (tables.length === 0) {
+  if (tables.length === 0 && tablesNeeded > 0) {
+    // Only when tables were actually WANTED. Nobody on the guest list yet means zero tables for a
+    // reason that has nothing to do with the room, and telling a family their hall is too small
+    // when they simply have not typed a number is a lie the planner should not tell.
     warnings.push('No tables fit. The room is too small for this table size once walkways are allowed for.');
   } else if (unplacedGuests > 0) {
     warnings.push(
@@ -273,5 +350,5 @@ export function planRoomLayout(input: RoomLayoutInput): RoomLayoutResult {
     );
   }
 
-  return { tables, mechitza: mechitzaObject, seatedCapacity, unplacedGuests, warnings };
+  return { tables, mechitza: partition, seatedCapacity, unplacedGuests, warnings };
 }
