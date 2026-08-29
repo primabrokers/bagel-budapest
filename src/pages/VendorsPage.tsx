@@ -11,6 +11,9 @@ import { useVendors } from '../data/vendors/hooks';
 import { toggleVendorFavourite } from '../data/vendors/mutations';
 import { VendorCard } from '../components/vendors/VendorCard';
 import { VendorSheet } from '../components/vendors/VendorSheet';
+import { VendorContactSheet } from '../components/vendors/VendorContactSheet';
+import { useEvent } from '../data/event/hooks';
+import { useEventContext } from '../data/event/context';
 import { VENDOR_STATUSES, VENDOR_STATUS_LABELS } from '../components/vendors/statusMeta';
 import { VENDOR_CATEGORIES } from '../lib/vendors/categories';
 import type { VendorWithQuotes } from '../data/vendors/types';
@@ -29,12 +32,16 @@ export function VendorsPage() {
   const [openVendorId, setOpenVendorId] = useState<string | null>(null);
   const [sheetMode, setSheetMode] = useState<'closed' | 'add' | 'edit'>('closed');
   const [favouriteBusyId, setFavouriteBusyId] = useState<string | null>(null);
+  const [contactVendorId, setContactVendorId] = useState<string | null>(null);
+  const { eventId } = useEventContext();
+  const { data: event } = useEvent();
 
   const filtered = useMemo(() => {
     const all = vendors ?? [];
     return category === 'all' ? all : all.filter((v) => v.category === category);
   }, [vendors, category]);
 
+  const contactVendor = contactVendorId ? (vendors?.find((v) => v.id === contactVendorId) ?? null) : null;
   const openVendor = openVendorId ? (filtered.find((v) => v.id === openVendorId) ?? vendors?.find((v) => v.id === openVendorId) ?? null) : null;
 
   function openEdit(vendor: VendorWithQuotes) {
@@ -200,7 +207,22 @@ export function VendorsPage() {
         onClose={closeSheet}
         vendor={sheetMode === 'edit' ? openVendor : null}
         onSaved={reload}
+        onContact={(vendorId) => {
+          closeSheet();
+          setContactVendorId(vendorId);
+        }}
       />
+
+      {contactVendor && (
+        <VendorContactSheet
+          open
+          onClose={() => setContactVendorId(null)}
+          eventId={eventId}
+          vendor={contactVendor}
+          event={event ?? null}
+          onContacted={reload}
+        />
+      )}
     </div>
   );
 }

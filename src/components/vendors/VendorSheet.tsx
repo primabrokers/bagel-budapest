@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Paperclip, Pencil, Plus, Star, Trash2 } from 'lucide-react';
+import { Paperclip, Pencil, Plus, Send, Star, Trash2 } from 'lucide-react';
 import { Sheet } from '../ui/Sheet';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
@@ -40,6 +40,9 @@ interface VendorSheetProps {
   /** Null means "add a vendor"; otherwise the vendor being edited, quotes embedded. */
   vendor: VendorWithQuotes | null;
   onSaved: () => void;
+  /** Hand off to the contact sheet. Only offered for a vendor that already exists — there is
+   *  nothing to write a message to while one is still being added. */
+  onContact?: (vendorId: string) => void;
 }
 
 interface VendorFormState {
@@ -125,7 +128,7 @@ function readMoneyField(raw: string): { value: number | null; error?: string } {
  * form when `vendor` is null, in which case the quotes/documents/tasks/notes sections are hidden
  * — there is nothing yet to link them to.
  */
-export function VendorSheet({ open, onClose, vendor, onSaved }: VendorSheetProps) {
+export function VendorSheet({ open, onClose, vendor, onSaved, onContact }: VendorSheetProps) {
   const { eventId } = useEventContext();
   const [form, setForm] = useState<VendorFormState>(EMPTY_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -361,6 +364,12 @@ export function VendorSheet({ open, onClose, vendor, onSaved }: VendorSheetProps
               >
                 <Trash2 size={14} aria-hidden="true" />
                 {deleting ? 'Removing…' : 'Remove vendor'}
+              </Button>
+            )}
+            {vendor && onContact && (vendor.email || vendor.whatsapp || vendor.phone) && (
+              <Button type="button" variant="secondary" onClick={() => onContact(vendor.id)} disabled={saving || deleting}>
+                <Send size={14} aria-hidden="true" />
+                Contact
               </Button>
             )}
             <Button type="button" variant="secondary" onClick={onClose}>

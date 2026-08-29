@@ -102,6 +102,62 @@ export async function toggleVendorFavourite(id: string, favourite: boolean): Pro
   });
 }
 
+/* -----------------------------------------------------------------------------------------------
+   Contact history — append-only (migration 13). One row per message actually sent.
+----------------------------------------------------------------------------------------------- */
+
+export interface VendorContactInput {
+  vendorId: string;
+  channel: 'email' | 'whatsapp' | 'phone' | 'other';
+  subject?: string | null;
+  body?: string | null;
+  /** The address or number it went to AT THE TIME — kept even if the vendor's details change. */
+  sentTo?: string | null;
+}
+
+/**
+ * Records an outbound message and, when the vendor is still at the start of the pipeline, moves
+ * them to `contacted`.
+ *
+ * The status only ever moves FORWARD from `researching`: a family that has already shortlisted or
+ * booked a vendor and then sends a chasing note must not be dragged back to "contacted". That is
+ * the kind of quiet regression nobody notices until the pipeline is meaningless.
+ */
+export async function recordVendorContact(
+  eventId: string,
+  input: VendorContactInput,
+  currentStatus: string,
+): Promise<void> {
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase.from('bm_vendor_contacts').insert({
+    event_id: eventId,
+    vendor_id: input.vendorId,
+    channel: input.channel,
+    subject: input.subject ?? null,
+    body: input.body ?? null,
+    sent_to: input.sentTo ?? null,
+    sent_by: userData.user?.id ?? null,
+  });
+  if (error) throw error;
+
+  if (currentStatus === 'researching') {
+    const { error: statusError } = await supabase
+      .from('bm_vendors')
+      .update({ status: 'contacted' })
+      .eq('id', input.vendorId);
+    if (statusError) throw statusError;
+  }
+
+  await logActivity({
+    eventId,
+    action: 'vendor_contacted',
+    entityType: 'vendor',
+    entityId: input.vendorId,
+    summary: `Contacted by ${input.channel}${input.sentTo ? ` (${input.sentTo})` : ''}`,
+  });
+}
+
 export interface VendorQuoteInput {
   label?: string | null;
   amount?: number | null;
