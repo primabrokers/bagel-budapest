@@ -17,6 +17,7 @@ import {
 } from '../../data/guests/mutations';
 import type { FunctionRow } from '../../data/event/types';
 import type { GuestType, GuestWithDetails, MealPreference, RsvpStatus, TagRow } from '../../data/guests/types';
+import { GENDER_LABELS, GENDER_VALUES, normaliseGender } from '../../lib/guests/gender';
 
 const GUEST_TYPES: GuestType[] = ['adult', 'child'];
 const MEAL_PREFERENCES: MealPreference[] = ['standard', 'vegetarian', 'vegan', 'gluten_free', 'other'];
@@ -145,7 +146,7 @@ export function GuestSheet({ open, onClose, guest, householdId, eventId, tags, f
         last_name: form.last_name.trim() || null,
         guest_type: form.guest_type,
         age,
-        gender: form.gender.trim() || null,
+        gender: normaliseGender(form.gender),
         dietary: form.dietary.trim() || null,
         allergies: form.allergies.trim() || null,
         meal_preference: form.meal_preference || null,
@@ -296,8 +297,21 @@ export function GuestSheet({ open, onClose, guest, householdId, eventId, tags, f
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Gender" htmlFor="guest-gender">
-            <Input id="guest-gender" value={form.gender} onChange={(e) => setForm((f) => ({ ...f, gender: e.target.value }))} />
+          <Field label="Gender" htmlFor="guest-gender" hint="Used to seat either side of a mechitza">
+            {/* A select rather than a text box because `autoSeat` matches these exact two values:
+                a typed "M" used to leave the guest with no side constraint and nothing to say so. */}
+            <Select
+              id="guest-gender"
+              value={normaliseGender(form.gender) ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, gender: e.target.value }))}
+            >
+              <option value="">Not set</option>
+              {GENDER_VALUES.map((value) => (
+                <option key={value} value={value}>
+                  {GENDER_LABELS[value]}
+                </option>
+              ))}
+            </Select>
           </Field>
           <Field label="Relationship" htmlFor="guest-relationship" hint="e.g. Cousin, School friend">
             <Input

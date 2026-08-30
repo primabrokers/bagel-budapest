@@ -10,11 +10,19 @@ import { cn } from '../../lib/cn';
 import { showToast } from '../../hooks/useToast';
 import { confirmDialog } from '../../hooks/useConfirm';
 import {
-  createHousehold,
+  createGuests,
+  createHouseholdWithGuests,
   deleteHousehold,
   setHouseholdTags,
   updateHousehold,
 } from '../../data/guests/mutations';
+import { PeopleRows } from './PeopleRows';
+import {
+  derivedHouseholdName,
+  initialPeople,
+  toGuestInputs,
+  type PersonDraft,
+} from '../../lib/guests/personDraft';
 import { useRsvpLinks } from '../../data/invitations/hooks';
 import { buildWhatsAppLink } from '../../lib/share';
 import { GuestSheet } from './GuestSheet';
@@ -100,6 +108,7 @@ interface HouseholdSheetProps {
  */
 export function HouseholdSheet({ open, onClose, household, eventId, tags, functions, onChanged, onCreated }: HouseholdSheetProps) {
   const [form, setForm] = useState<HouseholdFormState>(EMPTY_FORM);
+  const [people, setPeople] = useState<PersonDraft[]>(initialPeople);
   const [saving, setSaving] = useState(false);
   const [tagBusy, setTagBusy] = useState<string | null>(null);
   const [guestSheetOpen, setGuestSheetOpen] = useState(false);
@@ -121,6 +130,7 @@ export function HouseholdSheet({ open, onClose, household, eventId, tags, functi
   useEffect(() => {
     if (!open) return;
     setForm(household ? toForm(household) : EMPTY_FORM);
+    setPeople(initialPeople());
     // Deliberately keyed on the id, not the whole `household` object: a tag/guest change made
     // from inside this sheet triggers onChanged() -> a parent reload -> a new `household` object
     // reference every time, and resetting the form fields on every one of those would clobber
@@ -128,10 +138,23 @@ export function HouseholdSheet({ open, onClose, household, eventId, tags, functi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, household?.id]);
 
+  /** Fills the household's own blank contact fields from an imported contact. Only ever fills a
+   *  blank — an import must never overwrite something the family typed. */
+  function applyImportedDetails(details: { phone?: string; email?: string; address?: string }) {
+    setForm((f) => ({
+      ...f,
+      phone: f.phone || details.phone || '',
+      email: f.email || details.email || '',
+      address_lines: f.address_lines || details.address || '',
+    }));
+  }
+
   async function handleSubmit() {
-    const name = form.name.trim();
+    // Falls back to the first surname on the card — "Cohen" — so a family whose name is already
+    // sitting in the people rows below does not have to be typed twice.
+    const name = form.name.trim() || derivedHouseholdName(people);
     if (!name) {
-      showToast('Give the household a name.', 'error');
+      showToast('Give the household a name, or add someone with a surname.', 'error');
       return;
     }
     setSaving(true);
@@ -148,13 +171,35 @@ export function HouseholdSheet({ open, onClose, household, eventId, tags, functi
         whatsapp: form.whatsapp.trim() || null,
         notes: form.notes.trim() || null,
       };
+      // Numbered on from whoever is already on the card, so appending does not reshuffle them.
+      const newPeople = toGuestInputs(people, household ? household.guests.length : 0);
+
       if (household) {
         await updateHousehold(household.id, patch);
-        showToast('Saved', 'success');
+        if (newPeople.length > 0) {
+          // Appended after whoever is already on the card, so adding three cousins does not
+          // shuffle them in among the parents.
+          await createGuests(eventId, household.id, newPeople, household.guests.length);
+          setPeople(initialPeople());
+        }
+        showToast(
+          newPeople.length > 0
+            ? `Saved — ${newPeople.length} ${newPeople.length === 1 ? 'person' : 'people'} added`
+            : 'Saved',
+          'success',
+        );
         onChanged();
       } else {
-        const created = await createHousehold(eventId, patch);
-        showToast('Household added', 'success');
+        // One action for the card AND everyone on it. This is the whole point of the block below:
+        // a family of five used to be one save for the household plus five nested sheets, because
+        // the guest section could not exist until the household had an id.
+        const { household: created, guests } = await createHouseholdWithGuests(eventId, patch, newPeople);
+        showToast(
+          guests.length > 0
+            ? `Added ${created.name} and ${guests.length} ${guests.length === 1 ? 'person' : 'people'}`
+            : 'Household added',
+          'success',
+        );
         onChanged();
         onCreated?.(created.id);
       }
@@ -358,12 +403,19 @@ export function HouseholdSheet({ open, onClose, household, eventId, tags, functi
                 )}
               </div>
 
+              <PeopleRows
+                title="Add more people"
+                people={people}
+                onChange={setPeople}
+                onContactDetails={applyImportedDetails}
+              />
+
               <div className="border-t border-separator pt-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <p className="text-sm font-medium text-text-secondary">Guests</p>
                   <Button type="button" size="sm" variant="secondary" onClick={openAddGuest}>
                     <Plus size={14} aria-hidden="true" />
-                    Add guest
+                    Add one in full
                   </Button>
                 </div>
                 {household.guests.length === 0 ? (
@@ -433,9 +485,17 @@ export function HouseholdSheet({ open, onClose, household, eventId, tags, functi
               </div>
             </>
           ) : (
-            <p className="border-t border-separator pt-3 text-xs text-text-muted">
-              Save this household first to add guests, tags and more.
-            </p>
+            <>
+              <PeopleRows
+                title="Who is in this household?"
+                people={people}
+                onChange={setPeople}
+                onContactDetails={applyImportedDetails}
+              />
+              <p className="text-xs text-text-muted">
+                Saving adds the household and everyone on it together. Tags and the RSVP link appear once it exists.
+              </p>
+            </>
           )}
         </div>
       </Sheet>

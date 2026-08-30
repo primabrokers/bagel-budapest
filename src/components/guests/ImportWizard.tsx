@@ -15,8 +15,9 @@ import {
 } from '../../lib/importMapping';
 import { findDuplicate, findGuestDuplicateInHousehold } from '../../lib/importDedupe';
 import type { DuplicateMatch, ExistingGuestName, ExistingHousehold } from '../../lib/importDedupe';
-import { createGuest, createHousehold } from '../../data/guests/mutations';
+import { createGuests, createHousehold } from '../../data/guests/mutations';
 import type { GuestType, HouseholdWithGuests, MealPreference, SideOfFamily } from '../../data/guests/types';
+import { normaliseGender } from '../../lib/guests/gender';
 
 type WizardStep = 1 | 2 | 3;
 type RowAction = 'create' | 'merge' | 'skip';
@@ -92,7 +93,7 @@ function buildGroups(
       last_name: get(record, 'last_name') || null,
       guest_type: get(record, 'guest_type').trim().toLowerCase().startsWith('c') ? 'child' : 'adult',
       age: Number.isFinite(parsedAge) ? parsedAge : null,
-      gender: get(record, 'gender') || null,
+      gender: normaliseGender(get(record, 'gender')),
       dietary: get(record, 'dietary') || null,
       allergies: get(record, 'allergies') || null,
       meal_preference: MEAL_PREFERENCE_VALUES.find((m) => m === rawMeal) ?? null,
@@ -176,16 +177,18 @@ async function runImport(groups: ImportGroup[], eventId: string, households: Hou
         outcome.createdHouseholds += 1;
       }
 
-      for (const guest of group.guests) {
-        if (group.action === 'merge') {
-          const dup = findGuestDuplicateInHousehold(guest, existingGuestNames);
-          if (dup) {
-            outcome.skippedGuests += 1;
-            continue;
-          }
-        }
-        await createGuest(eventId, householdId, guest);
-        outcome.createdGuests += 1;
+      const toCreate = group.guests.filter((guest) => {
+        if (group.action !== 'merge') return true;
+        const dup = findGuestDuplicateInHousehold(guest, existingGuestNames);
+        if (dup) outcome.skippedGuests += 1;
+        return !dup;
+      });
+
+      // One insert for the whole household rather than one per person. A 150-guest file used to be
+      // 150+ round trips, each also writing its own activity-log row.
+      if (toCreate.length > 0) {
+        await createGuests(eventId, householdId, toCreate, existingGuestNames.length);
+        outcome.createdGuests += toCreate.length;
       }
     } catch {
       outcome.failedGroups += 1;

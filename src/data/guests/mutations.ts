@@ -137,6 +137,114 @@ export async function createGuest(eventId: string, householdId: string, input: N
   return row;
 }
 
+/**
+ * Everyone on one household card, saved in one go.
+ *
+ * This is what makes adding a family of five one action instead of six. The old path forced the
+ * household to exist before a single person could be attached to it — `HouseholdSheet` could not
+ * even show its guest section until the insert came back with an id — so a family meant one save
+ * for the card and then a separate nested sheet, and a separate round trip, per person.
+ *
+ * The guests go in as ONE array insert rather than a loop. That is the difference between two round
+ * trips and N+1, and it matters most exactly where it used to hurt most: importing a spreadsheet of
+ * 150 guests.
+ *
+ * If the guests fail to insert, the household is deleted again. Two statements are not a
+ * transaction, and the alternative — leaving a named but empty card behind after an error the user
+ * already saw — is a mess someone has to notice and tidy up by hand.
+ */
+export async function createHouseholdWithGuests(
+  eventId: string,
+  household: NewHouseholdInput,
+  people: NewGuestInput[],
+): Promise<{ household: HouseholdRow; guests: GuestRow[] }> {
+  const { data: householdData, error: householdError } = await supabase
+    .from('bm_households')
+    .insert({ event_id: eventId, ...household })
+    .select('*')
+    .single();
+  if (householdError) throw householdError;
+  const row = householdData as HouseholdRow;
+
+  let guests: GuestRow[] = [];
+  if (people.length > 0) {
+    const { data: guestData, error: guestError } = await supabase
+      .from('bm_guests')
+      // The person spreads FIRST so the three fields below always win: an explicit
+      // `sort_order: undefined` on the input would otherwise overwrite the computed one with
+      // nothing, and event_id/household_id are this function's to decide, not the caller's.
+      .insert(people.map((person, index) => ({
+        ...person,
+        event_id: eventId,
+        household_id: row.id,
+        sort_order: person.sort_order ?? index,
+      })))
+      .select('*');
+
+    if (guestError) {
+      // Compensating delete — see the note above. Best effort: if this fails too, the empty card is
+      // still less bad than throwing away the original error, which is the one worth reporting.
+      await supabase.from('bm_households').delete().eq('id', row.id);
+      throw guestError;
+    }
+    guests = (guestData ?? []) as GuestRow[];
+  }
+
+  // One line for the card and one for the people. A five-person household writing six activity rows
+  // would bury everything else in the family's feed.
+  await logActivity({
+    eventId,
+    action: 'household_created',
+    entityType: 'household',
+    entityId: row.id,
+    summary:
+      guests.length > 0
+        ? `Added household: ${row.name} (${guests.length} ${guests.length === 1 ? 'person' : 'people'})`
+        : `Added household: ${row.name}`,
+    after: row,
+  });
+
+  return { household: row, guests };
+}
+
+/**
+ * Adds several people to a household that already exists — the "add more people to this card" case,
+ * and what `ImportWizard` uses in place of its old per-row loop.
+ *
+ * `sort_order` continues from whatever is already on the card rather than restarting at zero, so
+ * appending three cousins does not shuffle them in among the parents.
+ */
+export async function createGuests(
+  eventId: string,
+  householdId: string,
+  people: NewGuestInput[],
+  startSortOrder = 0,
+): Promise<GuestRow[]> {
+  if (people.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('bm_guests')
+    .insert(people.map((person, index) => ({
+      ...person,
+      event_id: eventId,
+      household_id: householdId,
+      sort_order: person.sort_order ?? startSortOrder + index,
+    })))
+    .select('*');
+  if (error) throw error;
+  const rows = (data ?? []) as GuestRow[];
+
+  await logActivity({
+    eventId,
+    action: 'guest_created',
+    entityType: 'household',
+    entityId: householdId,
+    summary: rows.length === 1 ? `Added guest: ${guestLabel(rows[0])}` : `Added ${rows.length} guests`,
+  });
+
+  return rows;
+}
+
 export async function updateGuest(id: string, patch: Partial<GuestRow>): Promise<GuestRow> {
   const { data, error } = await supabase.from('bm_guests').update(patch).eq('id', id).select('*').single();
   if (error) throw error;
