@@ -106,7 +106,7 @@ export async function createPayment(expenseId: string, input: PaymentInput): Pro
     action: 'payment_created',
     entityType: 'expense',
     entityId: expenseId,
-    summary: `Scheduled a payment of ${row.amount}`,
+    summary: `${row.status === 'paid' ? 'Recorded' : 'Scheduled'} a payment of ${row.amount}`,
     after: row,
   });
   return row;

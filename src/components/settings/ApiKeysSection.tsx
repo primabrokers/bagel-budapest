@@ -93,7 +93,7 @@ export function ApiKeysSection() {
     <Card>
       <h2 className="mb-1 text-base font-semibold text-text-primary">API keys</h2>
       <p className="mb-4 max-w-prose text-xs text-text-muted">
-        The planner uses these to design invitations, make artwork, research suppliers and send email. You pay each
+        The planner uses these to extract invoices, design invitations, make artwork, research suppliers and send email. You pay each
         provider directly. Keys are stored encrypted in Supabase Vault and are never shown again once saved — only
         the last four characters, so you can tell one from another.
       </p>

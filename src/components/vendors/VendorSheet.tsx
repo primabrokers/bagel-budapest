@@ -40,6 +40,7 @@ interface VendorSheetProps {
   /** Null means "add a vendor"; otherwise the vendor being edited, quotes embedded. */
   vendor: VendorWithQuotes | null;
   onSaved: () => void;
+  onPayments?: (vendorId: string) => void;
   /** Hand off to the contact sheet. Only offered for a vendor that already exists — there is
    *  nothing to write a message to while one is still being added. */
   onContact?: (vendorId: string) => void;
@@ -128,7 +129,7 @@ function readMoneyField(raw: string): { value: number | null; error?: string } {
  * form when `vendor` is null, in which case the quotes/documents/tasks/notes sections are hidden
  * — there is nothing yet to link them to.
  */
-export function VendorSheet({ open, onClose, vendor, onSaved, onContact }: VendorSheetProps) {
+export function VendorSheet({ open, onClose, vendor, onSaved, onContact, onPayments }: VendorSheetProps) {
   const { eventId } = useEventContext();
   const [form, setForm] = useState<VendorFormState>(EMPTY_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -382,6 +383,7 @@ export function VendorSheet({ open, onClose, vendor, onSaved, onContact }: Vendo
         }
       >
         <div className="flex flex-col gap-5">
+          {vendor && onPayments && <Button type="button" variant="secondary" onClick={() => onPayments(vendor.id)}>Invoices & payments</Button>}
           <div className="flex flex-col gap-3">
             <Field label="Name" htmlFor="vendor-name" required error={errors.name}>
               <Input id="vendor-name" value={form.name} onChange={(e) => set('name', e.target.value)} invalid={!!errors.name} />

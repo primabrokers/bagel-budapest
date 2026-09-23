@@ -13,6 +13,8 @@ import { VendorCard } from '../components/vendors/VendorCard';
 import { VendorSheet } from '../components/vendors/VendorSheet';
 import { VendorContactSheet } from '../components/vendors/VendorContactSheet';
 import { VendorResearchSheet } from '../components/vendors/VendorResearchSheet';
+import { InvoiceImportSheet } from '../components/vendors/InvoiceImportSheet';
+import { VendorPaymentsSheet } from '../components/vendors/VendorPaymentsSheet';
 import { useEvent } from '../data/event/hooks';
 import { useEventContext } from '../data/event/context';
 import { VENDOR_STATUSES, VENDOR_STATUS_LABELS } from '../components/vendors/statusMeta';
@@ -35,6 +37,8 @@ export function VendorsPage() {
   const [favouriteBusyId, setFavouriteBusyId] = useState<string | null>(null);
   const [contactVendorId, setContactVendorId] = useState<string | null>(null);
   const [researchOpen, setResearchOpen] = useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [paymentsVendorId, setPaymentsVendorId] = useState<string | null>(null);
   const { eventId } = useEventContext();
   const { data: event } = useEvent();
 
@@ -85,6 +89,7 @@ export function VendorsPage() {
         subtitle="Every supplier for the day, from first enquiry to final invoice."
         actions={
           <>
+            <Button type="button" variant="secondary" onClick={() => setInvoiceOpen(true)}>Import invoice</Button>
             <Button type="button" variant="secondary" onClick={() => setResearchOpen(true)}>
               <Search size={15} aria-hidden="true" />
               Find suppliers
@@ -215,11 +220,15 @@ export function VendorsPage() {
         onClose={closeSheet}
         vendor={sheetMode === 'edit' ? openVendor : null}
         onSaved={reload}
+        onPayments={(id) => { closeSheet(); setPaymentsVendorId(id); }}
         onContact={(vendorId) => {
           closeSheet();
           setContactVendorId(vendorId);
         }}
       />
+
+      {invoiceOpen && <InvoiceImportSheet onClose={() => setInvoiceOpen(false)} onSaved={(id) => { setInvoiceOpen(false); reload(); setPaymentsVendorId(id); }} />}
+      {paymentsVendorId && <VendorPaymentsSheet vendorId={paymentsVendorId} vendorName={vendors?.find(v => v.id === paymentsVendorId)?.name || 'Supplier'} onClose={() => setPaymentsVendorId(null)} />}
 
       <VendorResearchSheet
         open={researchOpen}
