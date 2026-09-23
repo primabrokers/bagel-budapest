@@ -14,6 +14,7 @@ interface PaymentSheetProps {
   /** Null means "add a payment" against this expense; otherwise the payment being edited. */
   payment: PaymentRow | null;
   onSaved: () => void;
+  defaultStatus?: PaymentStatus;
 }
 
 const PAYMENT_METHODS: PaymentMethod[] = ['bank_transfer', 'card', 'cash', 'cheque', 'other'];
@@ -51,16 +52,18 @@ function rowToForm(payment: PaymentRow): FormState {
 
 /** One payment's form — a deposit, a balance, an instalment — against a single expense line.
  *  Opened from `ExpenseSheet`'s inline payment list, one layer above it. */
-export function PaymentSheet({ open, onClose, expenseId, payment, onSaved }: PaymentSheetProps) {
+export function PaymentSheet({ open, onClose, expenseId, payment, onSaved, defaultStatus = 'scheduled' }: PaymentSheetProps) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [amountError, setAmountError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setForm(payment ? rowToForm(payment) : EMPTY_FORM);
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    setForm(payment ? rowToForm(payment) : { ...EMPTY_FORM, status: defaultStatus, paid_at: defaultStatus === 'paid' ? today : '' });
     setAmountError(null);
-  }, [open, payment]);
+  }, [open, payment, defaultStatus]);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -76,6 +79,8 @@ export function PaymentSheet({ open, onClose, expenseId, payment, onSaved }: Pay
       setAmountError(`Could not read "${form.amount}" as an amount.`);
       return;
     }
+    if (amount === null || amount <= 0) { setAmountError('Enter a payment greater than zero.'); return; }
+    if (form.status === 'paid' && !form.paid_at) { setAmountError('Enter the date this payment was made.'); return; }
     setAmountError(null);
 
     setSaving(true);
@@ -84,7 +89,7 @@ export function PaymentSheet({ open, onClose, expenseId, payment, onSaved }: Pay
         amount: amount as number,
         status: form.status,
         due_date: form.due_date || null,
-        paid_at: form.paid_at || null,
+        paid_at: form.status === 'paid' ? form.paid_at : null,
         method: form.method || null,
         reference: form.reference.trim() || null,
         notes: form.notes.trim() || null,
@@ -107,13 +112,13 @@ export function PaymentSheet({ open, onClose, expenseId, payment, onSaved }: Pay
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      onClose={() => { if (!saving) onClose(); }}
       title={payment ? 'Edit payment' : 'Add payment'}
       anchor="drawer"
       layer="raised"
       footer={
         <>
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button type="button" onClick={() => void handleSubmit()} disabled={saving}>

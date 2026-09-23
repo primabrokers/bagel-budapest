@@ -52,3 +52,14 @@ monorepo and needed Root Directory set to that path — if you are updating a Ve
 created before the move, clear that setting or the build will not find `package.json`.
 
 After a deploy, walk `docs/CHECKLIST.md` — it isn't covered by `npm run verify`.
+# Invoice import and vendor payments
+
+In **Settings → API keys**, add a Mixedbread key (or set `MIXEDBREAD_API_KEY` as an Edge Function secret). Keys remain server-side in the existing Vault flow.
+
+From **Vendors → Import invoice**, drop one PDF/JPG/PNG/WebP invoice up to 15 MB. The private source document is retained; Mixedbread's structured extraction job supplies an editable draft. Review supplier details, dates, items, payment terms, bank details and printed net/VAT/gross amounts. Missing fields stay blank. Only GBP invoices with reconciled net/VAT/total can be saved; credit notes need manual handling.
+
+Select an existing supplier to preserve its contact record. Select an existing budget expense if the invoice replaces an estimate or already has deposits logged; otherwise create a new expense. Saving is atomic and retry-safe. Identical file contents and repeated invoice numbers for the same supplier are protected against duplicate imports. Recent imports can be reopened after navigation or interruption.
+
+Open a vendor's **Invoices & payments** to log deposits, instalments and final payments with dates, methods and references. Only payments marked Paid reduce the balance. Printed paid amounts are kept as reference information and never automatically become payments. The existing Budget page uses the same ledger.
+
+Deployment requires migration `20260923204903_bm_vendor_invoice_imports.sql` and the `bm_invoice_extract` and `bm_ai_keys` Edge Functions, with JWT verification enabled. Extraction validates the Auth user and uses caller-scoped RLS reads before any service-role write. Imports are limited to 100 attempts per event per month and three attempts per failed document. Temporary Mixedbread files are deleted after a terminal poll; the original remains in private planner storage. A missing key is an actionable configuration error, never a simulated extraction.

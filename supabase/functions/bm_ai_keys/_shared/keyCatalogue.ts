@@ -22,6 +22,13 @@ export interface KeyDescriptor {
 
 export const KEY_CATALOGUE: readonly KeyDescriptor[] = [
   {
+    env: 'MIXEDBREAD_API_KEY',
+    vault: 'bm_ai_MIXEDBREAD_API_KEY',
+    label: 'Mixedbread',
+    enables: 'Extracting supplier details and totals from invoices',
+    console: 'https://platform.mixedbread.com',
+  },
+  {
     env: 'ANTHROPIC_API_KEY',
     vault: 'bm_ai_ANTHROPIC_API_KEY',
     label: 'Anthropic (Claude)',
